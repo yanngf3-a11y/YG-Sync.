@@ -19,26 +19,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -50,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,6 +56,8 @@ private val TextDark = Color(0xFF172033)
 private val TextSecondary = Color(0xFF718096)
 private val CardWhite = Color.White
 private val Success = Color(0xFF22C55E)
+private val Warning = Color(0xFFF59E0B)
+private val ErrorRed = Color(0xFFEF4444)
 
 class MainActivity : ComponentActivity() {
 
@@ -80,10 +70,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
 fun YGSyncApp() {
-
-    val context = LocalContext.current
 
     val receivers = remember {
         mutableStateListOf<Receiver>()
@@ -93,31 +81,67 @@ fun YGSyncApp() {
         mutableStateOf(false)
     }
 
+    var diagnostic by remember {
+        mutableStateOf("Preparando descubrimiento...")
+    }
+
+    var discoveryError by remember {
+        mutableStateOf(false)
+    }
+
+    val discovery = remember {
+        ReceiverDiscovery(
+            context = androidx.compose.ui.platform.LocalContext.current
+        )
+    }
+
     fun startDiscovery() {
 
-        if (discovering) return
+        if (discovering) {
+            return
+        }
 
         discovering = true
-        receivers.clear()
-
-        val discovery = ReceiverDiscovery(context)
+        discoveryError = false
+        diagnostic = "🔎 Buscando servicio YG Sync..."
 
         CoroutineScope(Dispatchers.Main).launch {
 
             try {
 
-                discovery.discoverReceivers().collect { receiver ->
+                discovery.discoverReceivers()
+                    .collect { receiver ->
 
-                    if (receivers.none { it.id == receiver.id }) {
-                        receivers.add(receiver)
+                        val existingIndex =
+                            receivers.indexOfFirst {
+                                it.id == receiver.id
+                            }
+
+                        if (existingIndex == -1) {
+
+                            receivers.add(receiver)
+
+                            diagnostic =
+                                "✅ Pantalla encontrada: ${receiver.name}"
+
+                        } else {
+
+                            receivers[existingIndex] = receiver
+
+                            diagnostic =
+                                "✅ Pantalla encontrada: ${receiver.name}"
+                        }
+
+                        discovering = false
                     }
-                }
 
-            } catch (_: Exception) {
-
-            } finally {
+            } catch (exception: Exception) {
 
                 discovering = false
+                discoveryError = true
+
+                diagnostic =
+                    "❌ Error NSD: ${exception.message ?: "error desconocido"}"
             }
         }
     }
@@ -126,66 +150,78 @@ fun YGSyncApp() {
         startDiscovery()
     }
 
-    MaterialTheme {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Background
+    ) {
 
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = Background
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)
         ) {
 
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            Header()
 
-                item {
+            Spacer(
+                modifier = Modifier.height(24.dp)
+            )
 
-                    Spacer(
-                        modifier = Modifier.height(18.dp)
-                    )
+            ConnectionSummary(
+                receiverCount = receivers.size,
+                discovering = discovering
+            )
 
-                    Header(discovering)
-                }
+            Spacer(
+                modifier = Modifier.height(24.dp)
+            )
 
-                item {
+            NowPlayingCard()
 
-                    ConnectionSummary(
-                        count = receivers.size
-                    )
-                }
+            Spacer(
+                modifier = Modifier.height(28.dp)
+            )
 
-                item {
-
-                    NowPlayingCard()
-                }
-
-                item {
-
-                    SectionHeader(
-                        title = "Pantallas",
-                        action = if (discovering) {
-                            "Buscando..."
-                        } else {
-                            "Actualizar"
-                        },
-                        onClick = {
-                            startDiscovery()
-                        }
-                    )
-                }
-
-                if (receivers.isEmpty()) {
-
-                    item {
-
-                        EmptyReceiversCard(
-                            discovering = discovering
-                        )
-                    }
-
+            SectionHeader(
+                title = "Pantallas",
+                action = if (discovering) {
+                    "Buscando..."
                 } else {
+                    "Actualizar"
+                },
+                onClick = {
+                    startDiscovery()
+                }
+            )
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+
+            DiagnosticCard(
+                message = diagnostic,
+                isError = discoveryError
+            )
+
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
+
+            if (receivers.isEmpty()) {
+
+                EmptyState(
+                    discovering = discovering,
+                    onRefresh = {
+                        startDiscovery()
+                    }
+                )
+
+            } else {
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
 
                     items(
                         items = receivers,
@@ -196,87 +232,28 @@ fun YGSyncApp() {
                             receiver = receiver
                         )
                     }
-                }
 
-                item {
+                    item {
 
-                    AddScreenButton(
-                        onClick = {
-                            startDiscovery()
-                        }
-                    )
-                }
-
-                item {
-
-                    Spacer(
-                        modifier = Modifier.height(20.dp)
-                    )
+                        AddScreenButton()
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-fun Header(discovering: Boolean) {
+@androidx.compose.runtime.Composable
+fun Header() {
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
 
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-
-            Text(
-                text = "YG Sync",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextDark
-            )
-
-            Spacer(
-                modifier = Modifier.height(3.dp)
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (discovering) {
-                                SkyBlue
-                            } else {
-                                Success
-                            }
-                        )
-                )
-
-                Spacer(
-                    modifier = Modifier.size(6.dp)
-                )
-
-                Text(
-                    text = if (discovering) {
-                        "Buscando pantallas..."
-                    } else {
-                        "Master conectado"
-                    },
-                    fontSize = 13.sp,
-                    color = TextSecondary
-                )
-            }
-        }
-
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(52.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
@@ -291,60 +268,67 @@ fun Header(discovering: Boolean) {
 
             Icon(
                 imageVector = Icons.Default.Devices,
-                contentDescription = "Dispositivos",
+                contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(25.dp)
+                modifier = Modifier.size(29.dp)
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.size(14.dp)
+        )
+
+        Column {
+
+            Text(
+                text = "YG Sync",
+                fontSize = 27.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+
+            Text(
+                text = "Control Center",
+                fontSize = 14.sp,
+                color = TextSecondary
             )
         }
     }
 }
 
-@Composable
-fun ConnectionSummary(count: Int) {
+@androidx.compose.runtime.Composable
+fun ConnectionSummary(
+    receiverCount: Int,
+    discovering: Boolean
+) {
 
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = CardWhite
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp
-        )
+        color = CardWhite,
+        shadowElevation = 3.dp
     ) {
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
+            modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
 
             Box(
                 modifier = Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .size(12.dp)
+                    .clip(CircleShape)
                     .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Blue,
-                                SkyBlue
-                            )
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-
-                Icon(
-                    imageVector = Icons.Default.Devices,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(27.dp)
-                )
-            }
+                        if (receiverCount > 0) {
+                            Success
+                        } else {
+                            Warning
+                        }
+                    )
+            )
 
             Spacer(
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(12.dp)
             )
 
             Column(
@@ -352,233 +336,87 @@ fun ConnectionSummary(count: Int) {
             ) {
 
                 Text(
-                    text = "Pantallas detectadas",
-                    fontSize = 14.sp,
-                    color = TextSecondary
-                )
-
-                Spacer(
-                    modifier = Modifier.height(2.dp)
-                )
-
-                Text(
-                    text = "$count / 10",
-                    fontSize = 24.sp,
+                    text = if (receiverCount > 0) {
+                        "Sistema conectado"
+                    } else {
+                        "Buscando pantallas"
+                    },
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
+
+                Text(
+                    text = if (discovering) {
+                        "Explorando la red local..."
+                    } else {
+                        "$receiverCount pantalla(s) encontrada(s)"
+                    },
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
             }
 
-            Text(
-                text = if (count == 0) {
-                    "Esperando"
+            Icon(
+                imageVector = Icons.Default.Wifi,
+                contentDescription = null,
+                tint = if (receiverCount > 0) {
+                    Success
                 } else {
-                    "Disponibles"
+                    Warning
                 },
-                fontSize = 12.sp,
+                modifier = Modifier.size(25.dp)
+            )
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+fun NowPlayingCard() {
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = CardWhite,
+        shadowElevation = 3.dp
+    ) {
+
+        Column(
+            modifier = Modifier.padding(22.dp)
+        ) {
+
+            Text(
+                text = "REPRODUCCIÓN ACTUAL",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Blue
+            )
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            Text(
+                text = "Ningún contenido reproduciéndose",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+
+            Spacer(
+                modifier = Modifier.height(5.dp)
+            )
+
+            Text(
+                text = "Conecta una pantalla para comenzar.",
+                fontSize = 13.sp,
                 color = TextSecondary
             )
         }
     }
 }
 
-@Composable
-fun NowPlayingCard() {
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = CardWhite
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 3.dp
-        )
-    ) {
-
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Box(
-                    modifier = Modifier
-                        .size(62.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    Blue,
-                                    SkyBlue
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-
-                Spacer(
-                    modifier = Modifier.size(15.dp)
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-
-                    Text(
-                        text = "REPRODUCCIÓN",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Blue
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(4.dp)
-                    )
-
-                    Text(
-                        text = "Ningún video seleccionado",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextDark
-                    )
-
-                    Text(
-                        text = "Selecciona un video para comenzar",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-                }
-            }
-
-            Spacer(
-                modifier = Modifier.height(22.dp)
-            )
-
-            LinearProgressIndicator(
-                progress = { 0f },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(5.dp)
-                    .clip(RoundedCornerShape(10.dp))
-            )
-
-            Spacer(
-                modifier = Modifier.height(16.dp)
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                IconButton(
-                    onClick = {}
-                ) {
-
-                    Icon(
-                        imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = "Anterior",
-                        tint = TextDark
-                    )
-                }
-
-                Spacer(
-                    modifier = Modifier.size(12.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    Blue,
-                                    SkyBlue
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Reproducir",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-
-                Spacer(
-                    modifier = Modifier.size(12.dp)
-                )
-
-                IconButton(
-                    onClick = {}
-                ) {
-
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Siguiente",
-                        tint = TextDark
-                    )
-                }
-            }
-
-            Spacer(
-                modifier = Modifier.height(14.dp)
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Icon(
-                    imageVector = Icons.Default.VolumeUp,
-                    contentDescription = "Volumen",
-                    tint = TextSecondary,
-                    modifier = Modifier.size(20.dp)
-                )
-
-                Spacer(
-                    modifier = Modifier.size(10.dp)
-                )
-
-                LinearProgressIndicator(
-                    progress = { 0.65f },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(5.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                )
-
-                Spacer(
-                    modifier = Modifier.size(10.dp)
-                )
-
-                Text(
-                    text = "65%",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-            }
-        }
-    }
-}
-
-@Composable
+@androidx.compose.runtime.Composable
 fun SectionHeader(
     title: String,
     action: String,
@@ -586,162 +424,208 @@ fun SectionHeader(
 ) {
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                onClick = onClick
-            ),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
 
         Text(
             text = title,
-            modifier = Modifier.weight(1f),
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            color = TextDark
+            color = TextDark,
+            modifier = Modifier.weight(1f)
         )
 
+        Row(
+            modifier = Modifier.clickable {
+                onClick()
+            },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                tint = Blue,
+                modifier = Modifier.size(18.dp)
+            )
+
+            Spacer(
+                modifier = Modifier.size(5.dp)
+            )
+
+            Text(
+                text = action,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Blue
+            )
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+fun DiagnosticCard(
+    message: String,
+    isError: Boolean
+) {
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = if (isError) {
+            Color(0xFFFFF1F2)
+        } else {
+            Color(0xFFEFF6FF)
+        }
+    ) {
+
         Text(
-            text = action,
+            text = message,
+            modifier = Modifier.padding(14.dp),
             fontSize = 13.sp,
-            color = Blue,
-            fontWeight = FontWeight.SemiBold
+            color = if (isError) {
+                ErrorRed
+            } else {
+                TextDark
+            }
         )
     }
 }
 
-@Composable
-fun EmptyReceiversCard(
-    discovering: Boolean
+@androidx.compose.runtime.Composable
+fun EmptyState(
+    discovering: Boolean,
+    onRefresh: () -> Unit
 ) {
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = CardWhite
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 1.dp
-        )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 35.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
-        Column(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .size(68.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFEAF2FF)),
+            contentAlignment = Alignment.Center
         ) {
 
-            if (discovering) {
+            Icon(
+                imageVector = Icons.Default.Devices,
+                contentDescription = null,
+                tint = Blue,
+                modifier = Modifier.size(34.dp)
+            )
+        }
 
-                CircularProgressIndicator(
-                    modifier = Modifier.size(34.dp),
-                    color = Blue,
-                    strokeWidth = 3.dp
-                )
+        Spacer(
+            modifier = Modifier.height(15.dp)
+        )
 
-                Spacer(
-                    modifier = Modifier.height(14.dp)
-                )
-
-                Text(
-                    text = "Buscando receptores",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextDark
-                )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                Text(
-                    text = "Asegúrate de que las pantallas estén en la misma red Wi-Fi.",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-
+        Text(
+            text = if (discovering) {
+                "Buscando pantallas..."
             } else {
+                "No se encontraron pantallas"
+            },
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextDark
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
+
+        Text(
+            text = "Asegúrate de que el Fire TV y este teléfono estén en la misma red Wi-Fi.",
+            fontSize = 13.sp,
+            color = TextSecondary
+        )
+
+        Spacer(
+            modifier = Modifier.height(18.dp)
+        )
+
+        Surface(
+            modifier = Modifier.clickable {
+                onRefresh()
+            },
+            shape = RoundedCornerShape(14.dp),
+            color = Blue
+        ) {
+
+            Row(
+                modifier = Modifier.padding(
+                    horizontal = 18.dp,
+                    vertical = 11.dp
+                ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
 
                 Icon(
-                    imageVector = Icons.Default.Devices,
+                    imageVector = Icons.Default.Refresh,
                     contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(38.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
                 )
 
                 Spacer(
-                    modifier = Modifier.height(12.dp)
+                    modifier = Modifier.size(7.dp)
                 )
 
                 Text(
-                    text = "No hay pantallas detectadas",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextDark
-                )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                Text(
-                    text = "Enciende un receptor YG Sync para comenzar.",
-                    fontSize = 12.sp,
-                    color = TextSecondary
+                    text = "Buscar nuevamente",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
             }
         }
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
 fun ScreenCard(
     receiver: Receiver
 ) {
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {},
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = CardWhite
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp
-        )
+        color = CardWhite,
+        shadowElevation = 2.dp
     ) {
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
 
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(
-                        Color(0xFFE9F8EF)
-                    ),
+                    .clip(
+                        RoundedCornerShape(14.dp)
+                    )
+                    .background(Color(0xFFEAF2FF)),
                 contentAlignment = Alignment.Center
             ) {
 
                 Icon(
                     imageVector = Icons.Default.Devices,
                     contentDescription = null,
-                    tint = Success,
-                    modifier = Modifier.size(25.dp)
+                    tint = Blue,
+                    modifier = Modifier.size(26.dp)
                 )
             }
 
             Spacer(
-                modifier = Modifier.size(13.dp)
+                modifier = Modifier.size(14.dp)
             )
 
             Column(
@@ -750,8 +634,8 @@ fun ScreenCard(
 
                 Text(
                     text = receiver.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
 
@@ -766,60 +650,58 @@ fun ScreenCard(
                 )
             }
 
-            Column(
-                horizontalAlignment = Alignment.End
-            ) {
-
-                Text(
-                    text = "Detectada",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Success
-                )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = TextSecondary
-                )
-            }
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (receiver.connected) {
+                            Success
+                        } else {
+                            Warning
+                        }
+                    )
+            )
         }
     }
 }
 
-@Composable
-fun AddScreenButton(
-    onClick: () -> Unit
-) {
+@androidx.compose.runtime.Composable
+fun AddScreenButton() {
 
-    Button(
-        onClick = onClick,
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(54.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = Blue
-        )
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = Color.Transparent
     ) {
 
-        Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = null
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(15.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
 
-        Spacer(
-            modifier = Modifier.size(8.dp)
-        )
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                tint = Blue,
+                modifier = Modifier.size(20.dp)
+            )
 
-        Text(
-            text = "Buscar pantallas",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+            Spacer(
+                modifier = Modifier.size(7.dp)
+            )
+
+            Text(
+                text = "Agregar pantalla",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Blue
+            )
+        }
     }
 }
