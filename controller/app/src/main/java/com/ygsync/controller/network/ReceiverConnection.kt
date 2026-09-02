@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
+import java.net.InetSocketAddress
 import java.net.Socket
 
 class ReceiverConnection(
@@ -19,18 +20,14 @@ class ReceiverConnection(
     suspend fun connect(): Boolean =
         withContext(Dispatchers.IO) {
 
-            try {
+            disconnect()
 
-                if (socket?.isConnected == true &&
-                    socket?.isClosed == false
-                ) {
-                    return@withContext true
-                }
+            try {
 
                 val newSocket = Socket()
 
                 newSocket.connect(
-                    java.net.InetSocketAddress(
+                    InetSocketAddress(
                         receiver.address,
                         receiver.port
                     ),
@@ -38,6 +35,7 @@ class ReceiverConnection(
                 )
 
                 newSocket.soTimeout = 3000
+                newSocket.keepAlive = true
 
                 socket = newSocket
 
@@ -65,21 +63,34 @@ class ReceiverConnection(
     suspend fun ping(): Long? =
         withContext(Dispatchers.IO) {
 
-            val currentSocket = socket
-                ?: return@withContext null
+            val currentSocket =
+                socket ?: return@withContext null
 
-            val currentWriter = writer
-                ?: return@withContext null
+            val currentWriter =
+                writer ?: return@withContext null
 
-            val currentReader = reader
-                ?: return@withContext null
+            val currentReader =
+                reader ?: return@withContext null
 
             try {
+
+                if (
+                    currentSocket.isClosed ||
+                    !currentSocket.isConnected
+                ) {
+                    disconnect()
+                    return@withContext null
+                }
 
                 val startTime =
                     System.currentTimeMillis()
 
                 currentWriter.println("PING")
+
+                if (currentWriter.checkError()) {
+                    disconnect()
+                    return@withContext null
+                }
 
                 val response =
                     currentReader.readLine()
@@ -92,6 +103,8 @@ class ReceiverConnection(
                     endTime - startTime
 
                 } else {
+
+                    disconnect()
 
                     null
                 }
@@ -109,12 +122,28 @@ class ReceiverConnection(
     ): Boolean =
         withContext(Dispatchers.IO) {
 
-            val currentWriter = writer
-                ?: return@withContext false
+            val currentSocket =
+                socket ?: return@withContext false
+
+            val currentWriter =
+                writer ?: return@withContext false
 
             try {
 
+                if (
+                    currentSocket.isClosed ||
+                    !currentSocket.isConnected
+                ) {
+                    disconnect()
+                    return@withContext false
+                }
+
                 currentWriter.println(message)
+
+                if (currentWriter.checkError()) {
+                    disconnect()
+                    return@withContext false
+                }
 
                 true
 
@@ -128,8 +157,11 @@ class ReceiverConnection(
 
     fun isConnected(): Boolean {
 
-        return socket?.isConnected == true &&
-            socket?.isClosed == false
+        val currentSocket = socket
+
+        return currentSocket != null &&
+            currentSocket.isConnected &&
+            !currentSocket.isClosed
     }
 
     fun disconnect() {
