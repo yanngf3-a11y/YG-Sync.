@@ -24,6 +24,52 @@ class ReceiverDiscovery(
     fun discoverReceivers(): Flow<Receiver> =
         callbackFlow {
 
+            fun resolveService(
+                serviceInfo: NsdServiceInfo
+            ) {
+
+                nsdManager.resolveService(
+                    serviceInfo,
+                    object : NsdManager.ResolveListener {
+
+                        override fun onResolveFailed(
+                            serviceInfo: NsdServiceInfo,
+                            errorCode: Int
+                        ) {
+                        }
+
+                        override fun onServiceResolved(
+                            resolvedServiceInfo: NsdServiceInfo
+                        ) {
+
+                            val host =
+                                resolvedServiceInfo.host
+                                    ?: return
+
+                            val address =
+                                host.hostAddress
+                                    ?: return
+
+                            val port =
+                                resolvedServiceInfo.port
+
+                            val name =
+                                resolvedServiceInfo.serviceName
+
+                            val receiver =
+                                Receiver(
+                                    id = "$address:$port",
+                                    name = name,
+                                    address = address,
+                                    port = port
+                                )
+
+                            trySend(receiver)
+                        }
+                    }
+                )
+            }
+
             val listener =
                 object : NsdManager.DiscoveryListener {
 
@@ -75,53 +121,6 @@ class ReceiverDiscovery(
                     ) {
                     }
                 }
-
-            fun resolveService(
-                serviceInfo: NsdServiceInfo
-            ) {
-
-                nsdManager.resolveService(
-                    serviceInfo,
-                    object :
-                        NsdManager.ResolveListener {
-
-                        override fun onResolveFailed(
-                            serviceInfo: NsdServiceInfo,
-                            errorCode: Int
-                        ) {
-                        }
-
-                        override fun onServiceResolved(
-                            resolvedServiceInfo:
-                                NsdServiceInfo
-                        ) {
-
-                            val address =
-                                resolvedServiceInfo
-                                    .host
-                                    ?.hostAddress
-                                    ?: return
-
-                            val port =
-                                resolvedServiceInfo.port
-
-                            val name =
-                                resolvedServiceInfo
-                                    .serviceName
-
-                            val receiver =
-                                Receiver(
-                                    id = "$address:$port",
-                                    name = name,
-                                    address = address,
-                                    port = port
-                                )
-
-                            trySend(receiver)
-                        }
-                    }
-                )
-            }
 
             try {
 
