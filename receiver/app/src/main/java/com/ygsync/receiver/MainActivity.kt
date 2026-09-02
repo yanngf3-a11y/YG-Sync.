@@ -25,25 +25,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
 import com.ygsync.receiver.network.ReceiverServer
 import com.ygsync.receiver.network.ReceiverService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 private val Blue = Color(0xFF2563EB)
 private val SkyBlue = Color(0xFF38BDF8)
@@ -53,11 +48,13 @@ private val TextSecondary = Color(0xFF718096)
 private val CardWhite = Color.White
 private val Success = Color(0xFF22C55E)
 
+private const val RECEIVER_PORT = 8765
+
 class MainActivity : ComponentActivity() {
 
     private val receiverScope =
         CoroutineScope(
-            SupervisorJob() + Dispatchers.Main
+            SupervisorJob() + Dispatchers.IO
         )
 
     private lateinit var receiverServer: ReceiverServer
@@ -67,12 +64,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         receiverServer = ReceiverServer(
-            port = 8765
+            port = RECEIVER_PORT
         )
 
         receiverService = ReceiverService(
             context = applicationContext,
-            port = 8765
+            port = RECEIVER_PORT
         )
 
         receiverServer.start(
@@ -85,70 +82,63 @@ class MainActivity : ComponentActivity() {
         receiverService.start()
 
         setContent {
-
-            YGSyncReceiverApp(
-                onConnectionMessage = {}
-            )
+            YGSyncReceiverApp()
         }
     }
 
-    private fun handleMessage(
-        message: String
-    ) {
+    private fun handleMessage(message: String) {
 
         when {
-
-            message.equals(
-                "PING",
-                ignoreCase = true
-            ) -> {
-                // Responderemos con PONG
-                // cuando implementemos el protocolo.
+            message == "PING" -> {
+                // Respuesta PING se implementará en la siguiente etapa.
             }
 
-            message.equals(
-                "PLAY",
-                ignoreCase = true
-            ) -> {
-                // Próximamente.
+            message == "PLAY" -> {
+                // Integración con SmartTube próximamente.
             }
 
-            message.equals(
-                "PAUSE",
-                ignoreCase = true
-            ) -> {
-                // Próximamente.
+            message == "PAUSE" -> {
+                // Integración con SmartTube próximamente.
             }
 
-            message.equals(
-                "STOP",
-                ignoreCase = true
-            ) -> {
-                // Próximamente.
+            message == "STOP" -> {
+                // Integración con SmartTube próximamente.
             }
 
-            else -> {
-                // Comando todavía no implementado.
+            message.startsWith("SEEK:") -> {
+                // Procesamiento SEEK próximamente.
             }
+
+            message.startsWith("VOLUME:") -> {
+                // Procesamiento VOLUME próximamente.
+            }
+
+            message.startsWith("LOAD_VIDEO:") -> {
+                // Integración LOAD_VIDEO próximamente.
+            }
+        }
+    }
+
+    private fun stopReceiver() {
+
+        receiverService.stop()
+        receiverServer.stop()
+
+        if (receiverScope.isActive) {
+            receiverScope.cancel()
         }
     }
 
     override fun onDestroy() {
 
-        receiverService.stop()
-
-        receiverServer.stop()
-
-        receiverScope.coroutineContext.cancel()
+        stopReceiver()
 
         super.onDestroy()
     }
 }
 
 @Composable
-fun YGSyncReceiverApp(
-    onConnectionMessage: () -> Unit
-) {
+fun YGSyncReceiverApp() {
 
     MaterialTheme {
 
@@ -157,13 +147,14 @@ fun YGSyncReceiverApp(
             color = Background
         ) {
 
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
+            ReceiverScreen()
+        }
+    }
 
-                ReceiverScreen()
-            }
+    DisposableEffect(Unit) {
+
+        onDispose {
+            // El ciclo de vida de la Activity controla el Receiver.
         }
     }
 }
@@ -171,24 +162,12 @@ fun YGSyncReceiverApp(
 @Composable
 fun ReceiverScreen() {
 
-    val context = LocalContext.current
-
-    var receiverReady by remember {
-        mutableStateOf(true)
-    }
-
-    DisposableEffect(context) {
-
-        onDispose {
-            receiverReady = false
-        }
-    }
-
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .padding(48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
 
         Box(
@@ -240,16 +219,12 @@ fun ReceiverScreen() {
             modifier = Modifier.height(32.dp)
         )
 
-        ReceiverStatusCard(
-            ready = receiverReady
-        )
+        ReceiverStatusCard()
     }
 }
 
 @Composable
-fun ReceiverStatusCard(
-    ready: Boolean
-) {
+fun ReceiverStatusCard() {
 
     Surface(
         modifier = Modifier
@@ -273,13 +248,7 @@ fun ReceiverStatusCard(
                     modifier = Modifier
                         .size(12.dp)
                         .clip(CircleShape)
-                        .background(
-                            if (ready) {
-                                Success
-                            } else {
-                                TextSecondary
-                            }
-                        )
+                        .background(Success)
                 )
 
                 Spacer(
@@ -287,11 +256,7 @@ fun ReceiverStatusCard(
                 )
 
                 Text(
-                    text = if (ready) {
-                        "Receiver activo"
-                    } else {
-                        "Receiver detenido"
-                    },
+                    text = "Receiver activo",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -317,13 +282,23 @@ fun ReceiverStatusCard(
                 title = "Master",
                 value = "Esperando conexión"
             )
+
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
+
+            Text(
+                text = "Puerto de comunicación: $RECEIVER_PORT",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
         }
     }
 }
 
 @Composable
 fun StatusRow(
-    icon: ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     value: String
 ) {
