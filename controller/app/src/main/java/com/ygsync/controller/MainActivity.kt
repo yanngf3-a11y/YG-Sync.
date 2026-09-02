@@ -42,7 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -398,16 +397,14 @@ fun Header() {
         Box(
             modifier = Modifier
                 .size(52.dp)
-                .clip(
-                    RoundedCornerShape(16.dp)
-                )
                 .background(
-                    Brush.linearGradient(
+                    brush = Brush.linearGradient(
                         colors = listOf(
                             Blue,
                             SkyBlue
                         )
-                    )
+                    ),
+                    shape = RoundedCornerShape(16.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -464,8 +461,10 @@ fun ConnectionSummary(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(CircleShape)
-                    .background(SoftBlue),
+                    .background(
+                        color = SoftBlue,
+                        shape = CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
 
@@ -508,23 +507,6 @@ fun ConnectionSummary(
                     color = TextSecondary
                 )
             }
-
-            Spacer(
-                modifier = Modifier.size(8.dp)
-            )
-
-            Box(
-                modifier = Modifier
-                    .size(11.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when {
-                            connectedCount > 0 -> Success
-                            discovering -> Warning
-                            else -> Color.LightGray
-                        }
-                    )
-            )
         }
     }
 }
@@ -595,34 +577,27 @@ fun SectionHeader(
         )
 
         Spacer(
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.size(20.dp)
         )
 
-        Row(
-            modifier = Modifier.clickable {
-                onClick()
-            },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Text(
+            text = action,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Blue,
+            modifier = Modifier
+                .clickable {
+                    onClick()
+                }
+                .padding(6.dp)
+        )
 
-            Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = null,
-                tint = Blue,
-                modifier = Modifier.size(18.dp)
-            )
-
-            Spacer(
-                modifier = Modifier.size(5.dp)
-            )
-
-            Text(
-                text = action,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Blue
-            )
-        }
+        Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = null,
+            tint = Blue,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 
@@ -672,12 +647,23 @@ fun EmptyState(
             modifier = Modifier.height(50.dp)
         )
 
-        Icon(
-            imageVector = Icons.Default.Devices,
-            contentDescription = null,
-            tint = Blue,
-            modifier = Modifier.size(54.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .background(
+                    color = SoftBlue,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+
+            Icon(
+                imageVector = Icons.Default.Devices,
+                contentDescription = null,
+                tint = Blue,
+                modifier = Modifier.size(38.dp)
+            )
+        }
 
         Spacer(
             modifier = Modifier.height(16.dp)
@@ -714,7 +700,8 @@ fun EmptyState(
             onClick = onRefresh,
             colors = ButtonDefaults.buttonColors(
                 containerColor = Blue
-            )
+            ),
+            shape = RoundedCornerShape(14.dp)
         ) {
 
             Icon(
@@ -755,10 +742,10 @@ fun ScreenCard(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(
-                        RoundedCornerShape(15.dp)
-                    )
-                    .background(SoftBlue),
+                    .background(
+                        color = SoftBlue,
+                        shape = RoundedCornerShape(15.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
 
@@ -775,7 +762,7 @@ fun ScreenCard(
             )
 
             Column(
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             ) {
 
                 Text(
@@ -783,6 +770,10 @@ fun ScreenCard(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
+                )
+
+                Spacer(
+                    modifier = Modifier.height(2.dp)
                 )
 
                 Text(
@@ -799,13 +790,13 @@ fun ScreenCard(
                     text =
                         when {
                             connected && latency != null ->
-                                "Conectada · ${latency} ms"
+                                "🟢 Conectada · ${latency} ms"
 
                             connected ->
-                                "Conectada"
+                                "🟢 Conectada"
 
                             else ->
-                                "Desconectada"
+                                "⚪ Desconectada"
                         },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -817,19 +808,6 @@ fun ScreenCard(
                         }
                 )
             }
-
-            Box(
-                modifier = Modifier
-                    .size(11.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (connected) {
-                            Success
-                        } else {
-                            Color.LightGray
-                        }
-                    )
-            )
         }
     }
 }
