@@ -5,7 +5,8 @@
     <application
         android:allowBackup="true"
         android:label="YG Sync"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:theme="@style/Theme.YGSync">
 
         <activity
             android:name=".MainActivity"
