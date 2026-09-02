@@ -51,12 +51,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.font.FontWeight
 import com.ygsync.controller.data.Receiver
 import com.ygsync.controller.network.ReceiverDiscovery
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 private val Blue = Color(0xFF2563EB)
 private val SkyBlue = Color(0xFF38BDF8)
@@ -91,27 +94,29 @@ fun YGSyncApp() {
     }
 
     fun startDiscovery() {
+
         if (discovering) return
 
         discovering = true
-
         receivers.clear()
 
         val discovery = ReceiverDiscovery(context)
 
-        kotlinx.coroutines.CoroutineScope(
-            kotlinx.coroutines.Dispatchers.Main
-        ).launch {
+        CoroutineScope(Dispatchers.Main).launch {
 
             try {
+
                 discovery.discoverReceivers().collect { receiver ->
 
                     if (receivers.none { it.id == receiver.id }) {
                         receivers.add(receiver)
                     }
                 }
+
             } catch (_: Exception) {
+
             } finally {
+
                 discovering = false
             }
         }
@@ -136,25 +141,37 @@ fun YGSyncApp() {
             ) {
 
                 item {
-                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Spacer(
+                        modifier = Modifier.height(18.dp)
+                    )
+
                     Header(discovering)
                 }
 
                 item {
-                    ConnectionSummary(receivers.size)
+
+                    ConnectionSummary(
+                        count = receivers.size
+                    )
                 }
 
                 item {
+
                     NowPlayingCard()
                 }
 
                 item {
+
                     SectionHeader(
                         title = "Pantallas",
                         action = if (discovering) {
                             "Buscando..."
                         } else {
                             "Actualizar"
+                        },
+                        onClick = {
+                            startDiscovery()
                         }
                     )
                 }
@@ -162,7 +179,10 @@ fun YGSyncApp() {
                 if (receivers.isEmpty()) {
 
                     item {
-                        EmptyReceiversCard(discovering)
+
+                        EmptyReceiversCard(
+                            discovering = discovering
+                        )
                     }
 
                 } else {
@@ -179,6 +199,7 @@ fun YGSyncApp() {
                 }
 
                 item {
+
                     AddScreenButton(
                         onClick = {
                             startDiscovery()
@@ -187,7 +208,10 @@ fun YGSyncApp() {
                 }
 
                 item {
-                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Spacer(
+                        modifier = Modifier.height(20.dp)
+                    )
                 }
             }
         }
@@ -213,7 +237,9 @@ fun Header(discovering: Boolean) {
                 color = TextDark
             )
 
-            Spacer(modifier = Modifier.height(3.dp))
+            Spacer(
+                modifier = Modifier.height(3.dp)
+            )
 
             Row(
                 verticalAlignment = Alignment.CenterVertically
@@ -224,11 +250,17 @@ fun Header(discovering: Boolean) {
                         .size(8.dp)
                         .clip(CircleShape)
                         .background(
-                            if (discovering) SkyBlue else Success
+                            if (discovering) {
+                                SkyBlue
+                            } else {
+                                Success
+                            }
                         )
                 )
 
-                Spacer(modifier = Modifier.size(6.dp))
+                Spacer(
+                    modifier = Modifier.size(6.dp)
+                )
 
                 Text(
                     text = if (discovering) {
@@ -248,7 +280,10 @@ fun Header(discovering: Boolean) {
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(Blue, SkyBlue)
+                        colors = listOf(
+                            Blue,
+                            SkyBlue
+                        )
                     )
                 ),
             contentAlignment = Alignment.Center
@@ -291,7 +326,10 @@ fun ConnectionSummary(count: Int) {
                     .clip(RoundedCornerShape(16.dp))
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Blue, SkyBlue)
+                            colors = listOf(
+                                Blue,
+                                SkyBlue
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -305,7 +343,9 @@ fun ConnectionSummary(count: Int) {
                 )
             }
 
-            Spacer(modifier = Modifier.size(15.dp))
+            Spacer(
+                modifier = Modifier.size(15.dp)
+            )
 
             Column(
                 modifier = Modifier.weight(1f)
@@ -317,7 +357,9 @@ fun ConnectionSummary(count: Int) {
                     color = TextSecondary
                 )
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(
+                    modifier = Modifier.height(2.dp)
+                )
 
                 Text(
                     text = "$count / 10",
@@ -368,7 +410,10 @@ fun NowPlayingCard() {
                         .clip(RoundedCornerShape(16.dp))
                         .background(
                             Brush.linearGradient(
-                                colors = listOf(Blue, SkyBlue)
+                                colors = listOf(
+                                    Blue,
+                                    SkyBlue
+                                )
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -382,7 +427,9 @@ fun NowPlayingCard() {
                     )
                 }
 
-                Spacer(modifier = Modifier.size(15.dp))
+                Spacer(
+                    modifier = Modifier.size(15.dp)
+                )
 
                 Column(
                     modifier = Modifier.weight(1f)
@@ -395,7 +442,9 @@ fun NowPlayingCard() {
                         color = Blue
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(
+                        modifier = Modifier.height(4.dp)
+                    )
 
                     Text(
                         text = "Ningún video seleccionado",
@@ -412,7 +461,9 @@ fun NowPlayingCard() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(
+                modifier = Modifier.height(22.dp)
+            )
 
             LinearProgressIndicator(
                 progress = { 0f },
@@ -422,7 +473,9 @@ fun NowPlayingCard() {
                     .clip(RoundedCornerShape(10.dp))
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -430,7 +483,10 @@ fun NowPlayingCard() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
 
-                IconButton(onClick = {}) {
+                IconButton(
+                    onClick = {}
+                ) {
+
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Anterior",
@@ -438,7 +494,9 @@ fun NowPlayingCard() {
                     )
                 }
 
-                Spacer(modifier = Modifier.size(12.dp))
+                Spacer(
+                    modifier = Modifier.size(12.dp)
+                )
 
                 Box(
                     modifier = Modifier
@@ -446,7 +504,10 @@ fun NowPlayingCard() {
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
-                                colors = listOf(Blue, SkyBlue)
+                                colors = listOf(
+                                    Blue,
+                                    SkyBlue
+                                )
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -460,9 +521,14 @@ fun NowPlayingCard() {
                     )
                 }
 
-                Spacer(modifier = Modifier.size(12.dp))
+                Spacer(
+                    modifier = Modifier.size(12.dp)
+                )
 
-                IconButton(onClick = {}) {
+                IconButton(
+                    onClick = {}
+                ) {
+
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Siguiente",
@@ -471,7 +537,9 @@ fun NowPlayingCard() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(
+                modifier = Modifier.height(14.dp)
+            )
 
             Row(
                 verticalAlignment = Alignment.CenterVertically
@@ -484,7 +552,9 @@ fun NowPlayingCard() {
                     modifier = Modifier.size(20.dp)
                 )
 
-                Spacer(modifier = Modifier.size(10.dp))
+                Spacer(
+                    modifier = Modifier.size(10.dp)
+                )
 
                 LinearProgressIndicator(
                     progress = { 0.65f },
@@ -494,7 +564,9 @@ fun NowPlayingCard() {
                         .clip(RoundedCornerShape(10.dp))
                 )
 
-                Spacer(modifier = Modifier.size(10.dp))
+                Spacer(
+                    modifier = Modifier.size(10.dp)
+                )
 
                 Text(
                     text = "65%",
@@ -509,13 +581,16 @@ fun NowPlayingCard() {
 @Composable
 fun SectionHeader(
     title: String,
-    action: String
+    action: String,
+    onClick: () -> Unit
 ) {
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {},
+            .clickable(
+                onClick = onClick
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
 
@@ -537,7 +612,9 @@ fun SectionHeader(
 }
 
 @Composable
-fun EmptyReceiversCard(discovering: Boolean) {
+fun EmptyReceiversCard(
+    discovering: Boolean
+) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -565,13 +642,19 @@ fun EmptyReceiversCard(discovering: Boolean) {
                     strokeWidth = 3.dp
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(
+                    modifier = Modifier.height(14.dp)
+                )
 
                 Text(
                     text = "Buscando receptores",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextDark
+                )
+
+                Spacer(
+                    modifier = Modifier.height(4.dp)
                 )
 
                 Text(
@@ -589,7 +672,9 @@ fun EmptyReceiversCard(discovering: Boolean) {
                     modifier = Modifier.size(38.dp)
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(
+                    modifier = Modifier.height(12.dp)
+                )
 
                 Text(
                     text = "No hay pantallas detectadas",
@@ -598,7 +683,9 @@ fun EmptyReceiversCard(discovering: Boolean) {
                     color = TextDark
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(
+                    modifier = Modifier.height(4.dp)
+                )
 
                 Text(
                     text = "Enciende un receptor YG Sync para comenzar.",
@@ -611,7 +698,9 @@ fun EmptyReceiversCard(discovering: Boolean) {
 }
 
 @Composable
-fun ScreenCard(receiver: Receiver) {
+fun ScreenCard(
+    receiver: Receiver
+) {
 
     Card(
         modifier = Modifier
@@ -637,7 +726,9 @@ fun ScreenCard(receiver: Receiver) {
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(15.dp))
-                    .background(Color(0xFFE9F8EF)),
+                    .background(
+                        Color(0xFFE9F8EF)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
 
@@ -649,7 +740,9 @@ fun ScreenCard(receiver: Receiver) {
                 )
             }
 
-            Spacer(modifier = Modifier.size(13.dp))
+            Spacer(
+                modifier = Modifier.size(13.dp)
+            )
 
             Column(
                 modifier = Modifier.weight(1f)
@@ -662,7 +755,9 @@ fun ScreenCard(receiver: Receiver) {
                     color = TextDark
                 )
 
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(
+                    modifier = Modifier.height(3.dp)
+                )
 
                 Text(
                     text = "${receiver.address}:${receiver.port}",
@@ -682,7 +777,9 @@ fun ScreenCard(receiver: Receiver) {
                     color = Success
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(
+                    modifier = Modifier.height(4.dp)
+                )
 
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowRight,
@@ -715,7 +812,9 @@ fun AddScreenButton(
             contentDescription = null
         )
 
-        Spacer(modifier = Modifier.size(8.dp))
+        Spacer(
+            modifier = Modifier.size(8.dp)
+        )
 
         Text(
             text = "Buscar pantallas",
