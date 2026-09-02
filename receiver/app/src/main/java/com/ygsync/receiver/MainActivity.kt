@@ -24,14 +24,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import com.ygsync.receiver.network.ReceiverServer
+import com.ygsync.receiver.network.ReceiverService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 private val Blue = Color(0xFF2563EB)
 private val SkyBlue = Color(0xFF38BDF8)
@@ -43,17 +55,100 @@ private val Success = Color(0xFF22C55E)
 
 class MainActivity : ComponentActivity() {
 
+    private val receiverScope =
+        CoroutineScope(
+            SupervisorJob() + Dispatchers.Main
+        )
+
+    private lateinit var receiverServer: ReceiverServer
+    private lateinit var receiverService: ReceiverService
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setContent {
-            YGSyncReceiverApp()
+        receiverServer = ReceiverServer(
+            port = 8765
+        )
+
+        receiverService = ReceiverService(
+            context = applicationContext,
+            port = 8765
+        )
+
+        receiverServer.start(
+            scope = receiverScope
+        ) { message ->
+
+            handleMessage(message)
         }
+
+        receiverService.start()
+
+        setContent {
+
+            YGSyncReceiverApp(
+                onConnectionMessage = {}
+            )
+        }
+    }
+
+    private fun handleMessage(
+        message: String
+    ) {
+
+        when {
+
+            message.equals(
+                "PING",
+                ignoreCase = true
+            ) -> {
+                // Responderemos con PONG
+                // cuando implementemos el protocolo.
+            }
+
+            message.equals(
+                "PLAY",
+                ignoreCase = true
+            ) -> {
+                // Próximamente.
+            }
+
+            message.equals(
+                "PAUSE",
+                ignoreCase = true
+            ) -> {
+                // Próximamente.
+            }
+
+            message.equals(
+                "STOP",
+                ignoreCase = true
+            ) -> {
+                // Próximamente.
+            }
+
+            else -> {
+                // Comando todavía no implementado.
+            }
+        }
+    }
+
+    override fun onDestroy() {
+
+        receiverService.stop()
+
+        receiverServer.stop()
+
+        receiverScope.coroutineContext.cancel()
+
+        super.onDestroy()
     }
 }
 
 @Composable
-fun YGSyncReceiverApp() {
+fun YGSyncReceiverApp(
+    onConnectionMessage: () -> Unit
+) {
 
     MaterialTheme {
 
@@ -75,6 +170,19 @@ fun YGSyncReceiverApp() {
 
 @Composable
 fun ReceiverScreen() {
+
+    val context = LocalContext.current
+
+    var receiverReady by remember {
+        mutableStateOf(true)
+    }
+
+    DisposableEffect(context) {
+
+        onDispose {
+            receiverReady = false
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -132,17 +240,23 @@ fun ReceiverScreen() {
             modifier = Modifier.height(32.dp)
         )
 
-        ReceiverStatusCard()
+        ReceiverStatusCard(
+            ready = receiverReady
+        )
     }
 }
 
 @Composable
-fun ReceiverStatusCard() {
+fun ReceiverStatusCard(
+    ready: Boolean
+) {
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp)),
+            .clip(
+                RoundedCornerShape(26.dp)
+            ),
         color = CardWhite,
         shadowElevation = 4.dp
     ) {
@@ -159,7 +273,13 @@ fun ReceiverStatusCard() {
                     modifier = Modifier
                         .size(12.dp)
                         .clip(CircleShape)
-                        .background(Success)
+                        .background(
+                            if (ready) {
+                                Success
+                            } else {
+                                TextSecondary
+                            }
+                        )
                 )
 
                 Spacer(
@@ -167,7 +287,11 @@ fun ReceiverStatusCard() {
                 )
 
                 Text(
-                    text = "Receiver activo",
+                    text = if (ready) {
+                        "Receiver activo"
+                    } else {
+                        "Receiver detenido"
+                    },
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -181,7 +305,7 @@ fun ReceiverStatusCard() {
             StatusRow(
                 icon = Icons.Default.Wifi,
                 title = "Red local",
-                value = "Esperando conexión"
+                value = "Servicio YG Sync activo"
             )
 
             Spacer(
@@ -191,7 +315,7 @@ fun ReceiverStatusCard() {
             StatusRow(
                 icon = Icons.Default.Devices,
                 title = "Master",
-                value = "No conectado"
+                value = "Esperando conexión"
             )
         }
     }
@@ -199,7 +323,7 @@ fun ReceiverStatusCard() {
 
 @Composable
 fun StatusRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     title: String,
     value: String
 ) {
@@ -212,7 +336,9 @@ fun StatusRow(
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(13.dp))
+                .clip(
+                    RoundedCornerShape(13.dp)
+                )
                 .background(
                     Color(0xFFEAF2FF)
                 ),
