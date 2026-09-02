@@ -31,24 +31,39 @@ class ReceiverServer(
 
             try {
 
-                serverSocket = ServerSocket(port)
+                val newServerSocket =
+                    ServerSocket(port)
+
+                newServerSocket.reuseAddress = true
+
+                serverSocket = newServerSocket
 
                 while (isActive) {
 
-                    val socket = serverSocket?.accept()
-                        ?: break
+                    try {
 
-                    launch {
+                        val socket =
+                            newServerSocket.accept()
 
-                        handleClient(
-                            socket = socket,
-                            onMessage = onMessage
-                        )
+                        launch {
+
+                            handleClient(
+                                socket = socket,
+                                onMessage = onMessage
+                            )
+                        }
+
+                    } catch (_: Exception) {
+
+                        if (!isActive) {
+                            break
+                        }
                     }
                 }
 
             } catch (_: Exception) {
-                // El servidor se detuvo.
+
+                // El servidor no pudo iniciar
             }
         }
     }
@@ -58,33 +73,51 @@ class ReceiverServer(
         onMessage: (String, Socket) -> Unit
     ) {
 
-        socket.use {
+        try {
 
-            try {
+            socket.keepAlive = true
+            socket.soTimeout = 0
 
-                val reader = BufferedReader(
+            val reader =
+                BufferedReader(
                     InputStreamReader(
                         socket.getInputStream()
                     )
                 )
 
-                while (true) {
+            while (true) {
 
-                    val message =
-                        reader.readLine()
-                            ?: break
+                val message =
+                    reader.readLine()
+                        ?: break
 
-                    if (message.isNotBlank()) {
+                if (message.isNotBlank()) {
+
+                    try {
 
                         onMessage(
                             message,
                             socket
                         )
+
+                    } catch (_: Exception) {
+
+                        // Un comando incorrecto no debe
+                        // cerrar el Receiver.
                     }
                 }
+            }
 
+        } catch (_: Exception) {
+
+            // El cliente se desconectó.
+            // No cerrar el servidor.
+
+        } finally {
+
+            try {
+                socket.close()
             } catch (_: Exception) {
-                // El cliente cerró la conexión.
             }
         }
     }
@@ -92,19 +125,30 @@ class ReceiverServer(
     fun send(
         socket: Socket,
         message: String
-    ) {
+    ): Boolean {
 
-        try {
+        return try {
 
-            val writer = PrintWriter(
-                socket.getOutputStream(),
-                true
-            )
+            if (
+                socket.isClosed ||
+                !socket.isConnected
+            ) {
+                return false
+            }
+
+            val writer =
+                PrintWriter(
+                    socket.getOutputStream(),
+                    true
+                )
 
             writer.println(message)
 
+            !writer.checkError()
+
         } catch (_: Exception) {
-            // No se pudo enviar el mensaje.
+
+            false
         }
     }
 
