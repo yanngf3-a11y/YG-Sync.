@@ -15,9 +15,12 @@ class ReceiverService(
     }
 
     private val nsdManager =
-        context.getSystemService(Context.NSD_SERVICE) as NsdManager
+        context.getSystemService(
+            Context.NSD_SERVICE
+        ) as NsdManager
 
-    private var registrationListener: NsdManager.RegistrationListener? = null
+    private var registrationListener:
+        NsdManager.RegistrationListener? = null
 
     fun start() {
 
@@ -25,40 +28,49 @@ class ReceiverService(
             return
         }
 
-        val serviceInfo = NsdServiceInfo().apply {
-            serviceName = SERVICE_NAME
-            serviceType = SERVICE_TYPE
-            setPort(port)
-        }
+        val serviceInfo =
+            NsdServiceInfo().apply {
 
-        val listener = object : NsdManager.RegistrationListener {
+                serviceName = SERVICE_NAME
 
-            override fun onServiceRegistered(
-                serviceInfo: NsdServiceInfo
-            ) {
-                registrationListener = this
+                serviceType = SERVICE_TYPE
+
+                setPort(port)
             }
 
-            override fun onRegistrationFailed(
-                serviceInfo: NsdServiceInfo,
-                errorCode: Int
-            ) {
-                registrationListener = null
-            }
+        val listener =
+            object : NsdManager.RegistrationListener {
 
-            override fun onServiceUnregistered(
-                serviceInfo: NsdServiceInfo
-            ) {
-                registrationListener = null
-            }
+                override fun onServiceRegistered(
+                    serviceInfo: NsdServiceInfo
+                ) {
 
-            override fun onUnregistrationFailed(
-                serviceInfo: NsdServiceInfo,
-                errorCode: Int
-            ) {
-                registrationListener = null
+                    registrationListener = this
+                }
+
+                override fun onRegistrationFailed(
+                    serviceInfo: NsdServiceInfo,
+                    errorCode: Int
+                ) {
+
+                    registrationListener = null
+                }
+
+                override fun onServiceUnregistered(
+                    serviceInfo: NsdServiceInfo
+                ) {
+
+                    registrationListener = null
+                }
+
+                override fun onUnregistrationFailed(
+                    serviceInfo: NsdServiceInfo,
+                    errorCode: Int
+                ) {
+
+                    registrationListener = null
+                }
             }
-        }
 
         registrationListener = listener
 
@@ -78,13 +90,16 @@ class ReceiverService(
 
     fun stop() {
 
-        val listener = registrationListener
-            ?: return
+        val listener =
+            registrationListener
+                ?: return
 
         try {
+
             nsdManager.unregisterService(
                 listener
             )
+
         } catch (_: Exception) {
         }
 
