@@ -24,9 +24,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -39,6 +39,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 
 private val Blue = Color(0xFF2563EB)
 private val SkyBlue = Color(0xFF38BDF8)
@@ -148,13 +149,6 @@ fun YGSyncReceiverApp() {
         ) {
 
             ReceiverScreen()
-        }
-    }
-
-    DisposableEffect(Unit) {
-
-        onDispose {
-            // El ciclo de vida de la Activity controla el Receiver.
         }
     }
 }
