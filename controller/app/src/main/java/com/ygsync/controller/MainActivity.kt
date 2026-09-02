@@ -28,11 +28,14 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun YGSyncApp() {
+
     MaterialTheme {
+
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -40,6 +43,7 @@ fun YGSyncApp() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+
                 Text(
                     text = "YG Sync",
                     style = MaterialTheme.typography.headlineLarge
