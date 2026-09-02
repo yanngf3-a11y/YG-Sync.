@@ -3,8 +3,6 @@ package com.ygsync.receiver
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
-import android.net.Network
-import android.net.NetworkCapabilities
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -74,8 +73,12 @@ class MainActivity : ComponentActivity() {
 
     private var serverStarted by mutableStateOf(false)
     private var localIp by mutableStateOf("Buscando IP...")
-    private var lastConnection by mutableStateOf("Ninguna conexión recibida")
-    private var lastCommand by mutableStateOf("Ningún comando recibido")
+    private var lastConnection by mutableStateOf(
+        "Ninguna conexión recibida"
+    )
+    private var lastCommand by mutableStateOf(
+        "Ningún comando recibido"
+    )
     private var serverError by mutableStateOf("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,10 +102,11 @@ class MainActivity : ComponentActivity() {
             runOnUiThread {
 
                 lastConnection =
-                    "Conexión recibida desde ${socket.inetAddress.hostAddress}"
+                    "Conexión recibida desde ${
+                        socket.inetAddress.hostAddress
+                    }"
 
-                lastCommand =
-                    message
+                lastCommand = message
             }
 
             handleMessage(
@@ -116,6 +120,7 @@ class MainActivity : ComponentActivity() {
         serverStarted = true
 
         setContent {
+
             YGSyncReceiverApp(
                 serverStarted = serverStarted,
                 localIp = localIp,
@@ -181,8 +186,11 @@ class MainActivity : ComponentActivity() {
                     ?: return "No disponible"
 
             linkProperties.linkAddresses
-                .map { it.address.hostAddress }
+                .map {
+                    it.address.hostAddress
+                }
                 .firstOrNull {
+
                     it != null &&
                         !it.startsWith("127.") &&
                         !it.contains(":")
@@ -289,6 +297,10 @@ fun ReceiverScreen(
             fontSize = 42.sp,
             fontWeight = FontWeight.Bold,
             color = TextDark
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
         )
 
         Text(
