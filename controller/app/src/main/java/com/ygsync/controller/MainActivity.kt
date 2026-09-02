@@ -1,27 +1,55 @@
 package com.ygsync.controller
 
-import android.app.Activity
 import android.os.Bundle
-import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val textView = TextView(this).apply {
-            text = """
-                YG Sync
-
-                Controller iniciado
-
-                MASTER
-            """.trimIndent()
-
-            textSize = 24f
-            setPadding(48, 48, 48, 48)
+        setContent {
+            YGSyncApp()
         }
+    }
+}
 
-        setContentView(textView)
+@Composable
+fun YGSyncApp() {
+    MaterialTheme {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "YG Sync",
+                    style = MaterialTheme.typography.headlineLarge
+                )
+
+                Text(
+                    text = "MASTER CONTROLLER",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+        }
     }
 }
