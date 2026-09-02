@@ -1,5 +1,10 @@
 package com.ygsync.receiver
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,13 +22,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +57,8 @@ private val TextDark = Color(0xFF172033)
 private val TextSecondary = Color(0xFF718096)
 private val CardWhite = Color.White
 private val Success = Color(0xFF22C55E)
+private val SoftBlue = Color(0xFFEAF2FF)
+private val ErrorRed = Color(0xFFEF4444)
 
 private const val RECEIVER_PORT = 8765
 
@@ -61,8 +72,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var receiverServer: ReceiverServer
     private lateinit var receiverService: ReceiverService
 
+    private var serverStarted by mutableStateOf(false)
+    private var localIp by mutableStateOf("Buscando IP...")
+    private var lastConnection by mutableStateOf("Ninguna conexión recibida")
+    private var lastCommand by mutableStateOf("Ningún comando recibido")
+    private var serverError by mutableStateOf("")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        localIp = getLocalIpAddress()
 
         receiverServer = ReceiverServer(
             port = RECEIVER_PORT
@@ -76,6 +95,16 @@ class MainActivity : ComponentActivity() {
         receiverServer.start(
             scope = receiverScope
         ) { message, socket ->
+
+            runOnUiThread {
+
+                lastConnection =
+                    "Conexión recibida desde ${socket.inetAddress.hostAddress}"
+
+                lastCommand =
+                    message
+            }
+
             handleMessage(
                 message = message,
                 socket = socket
@@ -84,8 +113,16 @@ class MainActivity : ComponentActivity() {
 
         receiverService.start()
 
+        serverStarted = true
+
         setContent {
-            YGSyncReceiverApp()
+            YGSyncReceiverApp(
+                serverStarted = serverStarted,
+                localIp = localIp,
+                lastConnection = lastConnection,
+                lastCommand = lastCommand,
+                serverError = serverError
+            )
         }
     }
 
@@ -105,28 +142,56 @@ class MainActivity : ComponentActivity() {
             }
 
             message == "PLAY" -> {
-                // Integración con SmartTube posteriormente.
             }
 
             message == "PAUSE" -> {
-                // Integración con SmartTube posteriormente.
             }
 
             message == "STOP" -> {
-                // Integración con SmartTube posteriormente.
             }
 
             message.startsWith("SEEK:") -> {
-                // Procesamiento SEEK posteriormente.
             }
 
             message.startsWith("VOLUME:") -> {
-                // Procesamiento VOLUME posteriormente.
             }
 
             message.startsWith("LOAD_VIDEO:") -> {
-                // Integración LOAD_VIDEO posteriormente.
             }
+        }
+    }
+
+    private fun getLocalIpAddress(): String {
+
+        return try {
+
+            val connectivityManager =
+                getSystemService(
+                    Context.CONNECTIVITY_SERVICE
+                ) as ConnectivityManager
+
+            val activeNetwork =
+                connectivityManager.activeNetwork
+                    ?: return "No disponible"
+
+            val linkProperties: LinkProperties =
+                connectivityManager.getLinkProperties(
+                    activeNetwork
+                )
+                    ?: return "No disponible"
+
+            linkProperties.linkAddresses
+                .map { it.address.hostAddress }
+                .firstOrNull {
+                    it != null &&
+                        !it.startsWith("127.") &&
+                        !it.contains(":")
+                }
+                ?: "No disponible"
+
+        } catch (_: Exception) {
+
+            "No disponible"
         }
     }
 
@@ -149,7 +214,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun YGSyncReceiverApp() {
+fun YGSyncReceiverApp(
+    serverStarted: Boolean,
+    localIp: String,
+    lastConnection: String,
+    lastCommand: String,
+    serverError: String
+) {
 
     MaterialTheme {
 
@@ -158,13 +229,25 @@ fun YGSyncReceiverApp() {
             color = Background
         ) {
 
-            ReceiverScreen()
+            ReceiverScreen(
+                serverStarted = serverStarted,
+                localIp = localIp,
+                lastConnection = lastConnection,
+                lastCommand = lastCommand,
+                serverError = serverError
+            )
         }
     }
 }
 
 @Composable
-fun ReceiverScreen() {
+fun ReceiverScreen(
+    serverStarted: Boolean,
+    localIp: String,
+    lastConnection: String,
+    lastCommand: String,
+    serverError: String
+) {
 
     Column(
         modifier = Modifier
@@ -208,10 +291,6 @@ fun ReceiverScreen() {
             color = TextDark
         )
 
-        Spacer(
-            modifier = Modifier.height(6.dp)
-        )
-
         Text(
             text = "Receiver",
             fontSize = 20.sp,
@@ -220,22 +299,31 @@ fun ReceiverScreen() {
         )
 
         Spacer(
-            modifier = Modifier.height(32.dp)
+            modifier = Modifier.height(28.dp)
         )
 
-        ReceiverStatusCard()
+        ReceiverDiagnosticCard(
+            serverStarted = serverStarted,
+            localIp = localIp,
+            lastConnection = lastConnection,
+            lastCommand = lastCommand,
+            serverError = serverError
+        )
     }
 }
 
 @Composable
-fun ReceiverStatusCard() {
+fun ReceiverDiagnosticCard(
+    serverStarted: Boolean,
+    localIp: String,
+    lastConnection: String,
+    lastCommand: String,
+    serverError: String
+) {
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(
-                RoundedCornerShape(26.dp)
-            ),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(26.dp),
         color = CardWhite,
         shadowElevation = 4.dp
     ) {
@@ -252,7 +340,13 @@ fun ReceiverStatusCard() {
                     modifier = Modifier
                         .size(12.dp)
                         .clip(CircleShape)
-                        .background(Success)
+                        .background(
+                            if (serverStarted) {
+                                Success
+                            } else {
+                                ErrorRed
+                            }
+                        )
                 )
 
                 Spacer(
@@ -260,7 +354,12 @@ fun ReceiverStatusCard() {
                 )
 
                 Text(
-                    text = "Receiver activo",
+                    text =
+                        if (serverStarted) {
+                            "Receiver activo"
+                        } else {
+                            "Error del Receiver"
+                        },
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -268,40 +367,68 @@ fun ReceiverStatusCard() {
             }
 
             Spacer(
-                modifier = Modifier.height(20.dp)
+                modifier = Modifier.height(22.dp)
             )
 
-            StatusRow(
+            DiagnosticRow(
                 icon = Icons.Default.Wifi,
                 title = "Red local",
-                value = "Servicio YG Sync activo"
+                value = localIp
             )
 
             Spacer(
                 modifier = Modifier.height(16.dp)
             )
 
-            StatusRow(
+            DiagnosticRow(
+                icon = Icons.Default.NetworkCheck,
+                title = "Servidor TCP",
+                value =
+                    if (serverStarted) {
+                        "Escuchando en puerto $RECEIVER_PORT"
+                    } else {
+                        "No iniciado"
+                    }
+            )
+
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
+
+            DiagnosticRow(
                 icon = Icons.Default.Devices,
                 title = "Master",
-                value = "Esperando conexión"
+                value = lastConnection
             )
 
             Spacer(
                 modifier = Modifier.height(16.dp)
             )
 
-            Text(
-                text = "Puerto de comunicación: $RECEIVER_PORT",
-                fontSize = 12.sp,
-                color = TextSecondary
+            DiagnosticRow(
+                icon = Icons.Default.CheckCircle,
+                title = "Último comando",
+                value = lastCommand
             )
+
+            if (serverError.isNotBlank()) {
+
+                Spacer(
+                    modifier = Modifier.height(16.dp)
+                )
+
+                Text(
+                    text = serverError,
+                    fontSize = 13.sp,
+                    color = ErrorRed
+                )
+            }
         }
     }
 }
 
 @Composable
-fun StatusRow(
+fun DiagnosticRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     value: String
@@ -318,9 +445,7 @@ fun StatusRow(
                 .clip(
                     RoundedCornerShape(13.dp)
                 )
-                .background(
-                    Color(0xFFEAF2FF)
-                ),
+                .background(SoftBlue),
             contentAlignment = Alignment.Center
         ) {
 
@@ -336,9 +461,7 @@ fun StatusRow(
             modifier = Modifier.size(14.dp)
         )
 
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column {
 
             Text(
                 text = title,
