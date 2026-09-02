@@ -26,7 +26,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.background
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -76,7 +75,6 @@ class MainActivity : ComponentActivity() {
         receiverServer.start(
             scope = receiverScope
         ) { message ->
-
             handleMessage(message)
         }
 
@@ -91,31 +89,31 @@ class MainActivity : ComponentActivity() {
 
         when {
             message == "PING" -> {
-                // Respuesta PING se implementará en la siguiente etapa.
+                // Respuesta PING se implementará posteriormente.
             }
 
             message == "PLAY" -> {
-                // Integración con SmartTube próximamente.
+                // Integración con SmartTube posteriormente.
             }
 
             message == "PAUSE" -> {
-                // Integración con SmartTube próximamente.
+                // Integración con SmartTube posteriormente.
             }
 
             message == "STOP" -> {
-                // Integración con SmartTube próximamente.
+                // Integración con SmartTube posteriormente.
             }
 
             message.startsWith("SEEK:") -> {
-                // Procesamiento SEEK próximamente.
+                // Procesamiento SEEK posteriormente.
             }
 
             message.startsWith("VOLUME:") -> {
-                // Procesamiento VOLUME próximamente.
+                // Procesamiento VOLUME posteriormente.
             }
 
             message.startsWith("LOAD_VIDEO:") -> {
-                // Integración LOAD_VIDEO próximamente.
+                // Integración LOAD_VIDEO posteriormente.
             }
         }
     }
