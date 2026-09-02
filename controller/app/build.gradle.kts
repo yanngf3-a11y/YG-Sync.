@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -15,18 +16,14 @@ android {
         versionName = "0.2.0"
     }
 
-    buildFeatures {
-        compose = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.15"
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = false
         }
+    }
+
+    buildFeatures {
+        compose = true
     }
 
     compileOptions {
@@ -42,6 +39,7 @@ android {
 dependencies {
 
     implementation("androidx.core:core-ktx:1.15.0")
+
     implementation("androidx.activity:activity-compose:1.10.1")
 
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
