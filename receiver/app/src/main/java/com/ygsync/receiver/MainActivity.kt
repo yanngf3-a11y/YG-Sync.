@@ -26,7 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
+import java.net.Socket
 
 private val Blue = Color(0xFF2563EB)
 private val SkyBlue = Color(0xFF38BDF8)
@@ -74,8 +75,11 @@ class MainActivity : ComponentActivity() {
 
         receiverServer.start(
             scope = receiverScope
-        ) { message ->
-            handleMessage(message)
+        ) { message, socket ->
+            handleMessage(
+                message = message,
+                socket = socket
+            )
         }
 
         receiverService.start()
@@ -85,11 +89,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleMessage(message: String) {
+    private fun handleMessage(
+        message: String,
+        socket: Socket
+    ) {
 
         when {
+
             message == "PING" -> {
-                // Respuesta PING se implementará posteriormente.
+
+                receiverServer.send(
+                    socket = socket,
+                    message = "PONG"
+                )
             }
 
             message == "PLAY" -> {
