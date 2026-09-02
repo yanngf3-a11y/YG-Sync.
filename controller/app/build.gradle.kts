@@ -12,8 +12,8 @@ android {
         applicationId = "com.ygsync.controller"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     buildTypes {
@@ -50,6 +50,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     implementation("androidx.compose.material:material-icons-extended")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
