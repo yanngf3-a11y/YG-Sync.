@@ -1,23 +1,27 @@
-<?xml version="1.0" encoding="utf-8"?>
+package com.ygsync.controller
 
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+import android.app.Activity
+import android.os.Bundle
+import android.widget.TextView
 
-    <application
-        android:allowBackup="true"
-        android:label="YG Sync"
-        android:supportsRtl="true">
+class MainActivity : Activity() {
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+        val textView = TextView(this).apply {
+            text = """
+                YG Sync
 
-        </activity>
+                Controller iniciado
 
-    </application>
+                MASTER
+            """.trimIndent()
 
-</manifest>
+            textSize = 24f
+            setPadding(48, 48, 48, 48)
+        }
+
+        setContentView(textView)
+    }
+}
