@@ -28,7 +28,7 @@ class ReceiverService(
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = SERVICE_NAME
             serviceType = SERVICE_TYPE
-            servicePort = port
+            setPort(port)
         }
 
         val listener = object : NsdManager.RegistrationListener {
