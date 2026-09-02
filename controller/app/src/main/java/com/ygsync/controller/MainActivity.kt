@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
@@ -30,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ygsync.controller.data.Receiver
@@ -63,13 +66,14 @@ private val TextDark = Color(0xFF172033)
 private val TextSecondary = Color(0xFF718096)
 private val CardWhite = Color.White
 private val Success = Color(0xFF22C55E)
-private val Warning = Color(0xFFF59E0B)
 private val ErrorRed = Color(0xFFEF4444)
 private val SoftBlue = Color(0xFFEAF2FF)
 
 class MainActivity : ComponentActivity() {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
         super.onCreate(savedInstanceState)
 
         setContent {
@@ -104,10 +108,20 @@ fun YGSyncApp() {
     }
 
     var diagnostic by remember {
-        mutableStateOf("Preparando descubrimiento...")
+        mutableStateOf(
+            "Preparando conexión..."
+        )
     }
 
     var discoveryError by remember {
+        mutableStateOf(false)
+    }
+
+    var manualIp by remember {
+        mutableStateOf("")
+    }
+
+    var manualConnecting by remember {
         mutableStateOf(false)
     }
 
@@ -115,56 +129,180 @@ fun YGSyncApp() {
         ReceiverDiscovery(context)
     }
 
-    fun connectToReceiver(receiver: Receiver) {
+    fun connectToReceiver(
+        receiver: Receiver
+    ) {
 
-        if (connections.containsKey(receiver.id)) {
+        if (
+            connections.containsKey(
+                receiver.id
+            )
+        ) {
             return
         }
 
-        val connection = ReceiverConnection(receiver)
+        val connection =
+            ReceiverConnection(receiver)
 
-        connections[receiver.id] = connection
+        connections[receiver.id] =
+            connection
 
-        CoroutineScope(Dispatchers.Main).launch {
+        CoroutineScope(
+            Dispatchers.Main
+        ).launch {
 
             diagnostic =
                 "🔗 Conectando con ${receiver.name}..."
 
-            val connected = connection.connect()
+            val connected =
+                connection.connect()
 
             if (!connected) {
 
-                connectionStates[receiver.id] = false
+                connectionStates[
+                    receiver.id
+                ] = false
 
                 diagnostic =
                     "❌ No se pudo conectar con ${receiver.name}"
 
-                connections.remove(receiver.id)
+                connections.remove(
+                    receiver.id
+                )
 
                 return@launch
             }
 
-            connectionStates[receiver.id] = true
+            connectionStates[
+                receiver.id
+            ] = true
 
             diagnostic =
                 "🟢 Conectado: ${receiver.name}"
 
-            val latency = connection.ping()
+            val latency =
+                connection.ping()
 
             if (latency != null) {
 
-                latencies[receiver.id] = latency
+                latencies[
+                    receiver.id
+                ] = latency
 
                 diagnostic =
                     "🟢 ${receiver.name} conectado · ${latency} ms"
 
             } else {
 
-                connectionStates[receiver.id] = false
+                connectionStates[
+                    receiver.id
+                ] = false
 
                 diagnostic =
-                    "🟠 Conexión creada, pero PING falló"
+                    "🟠 TCP conectado, pero PING falló"
             }
+        }
+    }
+
+    fun connectManual() {
+
+        val ip =
+            manualIp.trim()
+
+        if (ip.isBlank()) {
+
+            diagnostic =
+                "⚠️ Introduce la IP del Fire TV"
+
+            return
+        }
+
+        if (manualConnecting) {
+            return
+        }
+
+        manualConnecting = true
+        discoveryError = false
+
+        diagnostic =
+            "🔗 Conectando directamente con $ip:8765..."
+
+        CoroutineScope(
+            Dispatchers.Main
+        ).launch {
+
+            val receiver =
+                Receiver(
+                    id = "$ip:8765",
+                    name = "Fire TV",
+                    address = ip,
+                    port = 8765
+                )
+
+            val connection =
+                ReceiverConnection(receiver)
+
+            connections[
+                receiver.id
+            ] = connection
+
+            val connected =
+                connection.connect()
+
+            if (!connected) {
+
+                connections.remove(
+                    receiver.id
+                )
+
+                connectionStates[
+                    receiver.id
+                ] = false
+
+                diagnostic =
+                    "❌ No se pudo conectar a $ip:8765"
+
+                manualConnecting = false
+
+                return@launch
+            }
+
+            val latency =
+                connection.ping()
+
+            if (latency != null) {
+
+                receivers.add(
+                    receiver
+                )
+
+                connectionStates[
+                    receiver.id
+                ] = true
+
+                latencies[
+                    receiver.id
+                ] = latency
+
+                diagnostic =
+                    "🟢 CONEXIÓN TCP FUNCIONANDO · $latency ms"
+
+            } else {
+
+                connectionStates[
+                    receiver.id
+                ] = false
+
+                diagnostic =
+                    "🟠 TCP conectado, pero no respondió PING"
+
+                connection.disconnect()
+                connections.remove(
+                    receiver.id
+                )
+            }
+
+            manualConnecting = false
         }
     }
 
@@ -180,7 +318,9 @@ fun YGSyncApp() {
         diagnostic =
             "🔎 Buscando servicio YG Sync..."
 
-        CoroutineScope(Dispatchers.Main).launch {
+        CoroutineScope(
+            Dispatchers.Main
+        ).launch {
 
             try {
 
@@ -195,7 +335,10 @@ fun YGSyncApp() {
                         "YGSyncDiscovery"
                     )
 
-                multicastLock.setReferenceCounted(false)
+                multicastLock.setReferenceCounted(
+                    false
+                )
+
                 multicastLock.acquire()
 
                 try {
@@ -209,14 +352,19 @@ fun YGSyncApp() {
                                     it.id == receiver.id
                                 }
 
-                            if (existingIndex == -1) {
+                            if (
+                                existingIndex == -1
+                            ) {
 
-                                receivers.add(receiver)
+                                receivers.add(
+                                    receiver
+                                )
 
                             } else {
 
-                                receivers[existingIndex] =
-                                    receiver
+                                receivers[
+                                    existingIndex
+                                ] = receiver
                             }
 
                             discovering = false
@@ -224,23 +372,29 @@ fun YGSyncApp() {
                             diagnostic =
                                 "✅ Pantalla encontrada: ${receiver.name}"
 
-                            connectToReceiver(receiver)
+                            connectToReceiver(
+                                receiver
+                            )
                         }
 
                 } finally {
 
-                    if (multicastLock.isHeld) {
+                    if (
+                        multicastLock.isHeld
+                    ) {
                         multicastLock.release()
                     }
                 }
 
-            } catch (exception: Exception) {
+            } catch (
+                exception: Exception
+            ) {
 
                 discovering = false
                 discoveryError = true
 
                 diagnostic =
-                    "❌ Error de descubrimiento: ${
+                    "❌ Error: ${
                         exception.message
                             ?: "error desconocido"
                     }"
@@ -252,30 +406,47 @@ fun YGSyncApp() {
         startDiscovery()
     }
 
-    LaunchedEffect(connections.keys.toList()) {
+    LaunchedEffect(
+        connections.keys.toList()
+    ) {
 
         while (true) {
 
             delay(5000)
 
-            connections.forEach { (id, connection) ->
+            connections.forEach {
+                    (id, connection) ->
 
-                if (!connection.isConnected()) {
+                if (
+                    !connection.isConnected()
+                ) {
 
-                    connectionStates[id] = false
+                    connectionStates[
+                        id
+                    ] = false
 
                 } else {
 
-                    val latency = connection.ping()
+                    val latency =
+                        connection.ping()
 
-                    if (latency != null) {
+                    if (
+                        latency != null
+                    ) {
 
-                        connectionStates[id] = true
-                        latencies[id] = latency
+                        connectionStates[
+                            id
+                        ] = true
+
+                        latencies[
+                            id
+                        ] = latency
 
                     } else {
 
-                        connectionStates[id] = false
+                        connectionStates[
+                            id
+                        ] = false
                     }
                 }
             }
@@ -296,24 +467,41 @@ fun YGSyncApp() {
             Header()
 
             Spacer(
-                modifier = Modifier.height(24.dp)
+                modifier = Modifier.height(20.dp)
+            )
+
+            ManualConnectionCard(
+                ip = manualIp,
+                onIpChange = {
+                    manualIp = it
+                },
+                onConnect = {
+                    connectManual()
+                },
+                connecting = manualConnecting
+            )
+
+            Spacer(
+                modifier = Modifier.height(20.dp)
             )
 
             ConnectionSummary(
-                receiverCount = receivers.size,
+                receiverCount =
+                    receivers.size,
                 connectedCount =
-                    connectionStates.values.count { it },
+                    connectionStates.values
+                        .count { it },
                 discovering = discovering
             )
 
             Spacer(
-                modifier = Modifier.height(24.dp)
+                modifier = Modifier.height(20.dp)
             )
 
             NowPlayingCard()
 
             Spacer(
-                modifier = Modifier.height(28.dp)
+                modifier = Modifier.height(24.dp)
             )
 
             SectionHeader(
@@ -339,10 +527,12 @@ fun YGSyncApp() {
             )
 
             Spacer(
-                modifier = Modifier.height(16.dp)
+                modifier = Modifier.height(14.dp)
             )
 
-            if (receivers.isEmpty()) {
+            if (
+                receivers.isEmpty()
+            ) {
 
                 EmptyState(
                     discovering = discovering,
@@ -354,18 +544,24 @@ fun YGSyncApp() {
             } else {
 
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier.fillMaxWidth(),
                     verticalArrangement =
-                        Arrangement.spacedBy(12.dp)
+                        Arrangement.spacedBy(
+                            12.dp
+                        )
                 ) {
 
                     items(
                         items = receivers,
-                        key = { it.id }
+                        key = {
+                            it.id
+                        }
                     ) { receiver ->
 
                         ScreenCard(
-                            receiver = receiver,
+                            receiver =
+                                receiver,
                             connected =
                                 connectionStates[
                                     receiver.id
@@ -391,29 +587,36 @@ fun Header() {
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
 
         Box(
             modifier = Modifier
                 .size(52.dp)
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Blue,
-                            SkyBlue
-                        )
-                    ),
-                    shape = RoundedCornerShape(16.dp)
+                    brush =
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Blue,
+                                SkyBlue
+                            )
+                        ),
+                    shape =
+                        RoundedCornerShape(16.dp)
                 ),
-            contentAlignment = Alignment.Center
+            contentAlignment =
+                Alignment.Center
         ) {
 
             Icon(
-                imageVector = Icons.Default.Devices,
-                contentDescription = null,
+                imageVector =
+                    Icons.Default.Devices,
+                contentDescription =
+                    null,
                 tint = Color.White,
-                modifier = Modifier.size(28.dp)
+                modifier =
+                    Modifier.size(28.dp)
             )
         }
 
@@ -426,13 +629,118 @@ fun Header() {
             Text(
                 text = "YG Sync",
                 fontSize = 27.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight =
+                    FontWeight.Bold,
                 color = TextDark
             )
 
             Text(
                 text = "Control Center",
                 fontSize = 14.sp,
+                color = TextSecondary
+            )
+        }
+    }
+}
+
+@Composable
+fun ManualConnectionCard(
+    ip: String,
+    onIpChange: (String) -> Unit,
+    onConnect: () -> Unit,
+    connecting: Boolean
+) {
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(22.dp),
+        color = CardWhite,
+        shadowElevation = 3.dp
+    ) {
+
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+
+            Text(
+                text = "CONEXIÓN DIRECTA",
+                fontSize = 12.sp,
+                fontWeight =
+                    FontWeight.Bold,
+                color = Blue
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Text(
+                text = "Probar conexión con Fire TV",
+                fontSize = 17.sp,
+                fontWeight =
+                    FontWeight.Bold,
+                color = TextDark
+            )
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+
+            OutlinedTextField(
+                value = ip,
+                onValueChange = onIpChange,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = {
+                    Text("Dirección IP")
+                },
+                placeholder = {
+                    Text("192.168.100.15")
+                },
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType =
+                            KeyboardType.Uri
+                    )
+            )
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+
+            Button(
+                onClick = onConnect,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                enabled = !connecting,
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor = Blue
+                    ),
+                shape =
+                    RoundedCornerShape(14.dp)
+            ) {
+
+                Text(
+                    text =
+                        if (connecting) {
+                            "Conectando..."
+                        } else {
+                            "Conectar y probar PING"
+                        }
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            Text(
+                text =
+                    "Puerto automático: 8765",
+                fontSize = 12.sp,
                 color = TextSecondary
             )
         }
@@ -447,15 +755,19 @@ fun ConnectionSummary(
 ) {
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(22.dp),
         color = CardWhite,
         shadowElevation = 3.dp
     ) {
 
         Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier.padding(20.dp),
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
             Box(
@@ -465,14 +777,18 @@ fun ConnectionSummary(
                         color = SoftBlue,
                         shape = CircleShape
                     ),
-                contentAlignment = Alignment.Center
+                contentAlignment =
+                    Alignment.Center
             ) {
 
                 Icon(
-                    imageVector = Icons.Default.Wifi,
-                    contentDescription = null,
+                    imageVector =
+                        Icons.Default.Wifi,
+                    contentDescription =
+                        null,
                     tint = Blue,
-                    modifier = Modifier.size(25.dp)
+                    modifier =
+                        Modifier.size(25.dp)
                 )
             }
 
@@ -480,9 +796,7 @@ fun ConnectionSummary(
                 modifier = Modifier.size(14.dp)
             )
 
-            Column(
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Column {
 
                 Text(
                     text =
@@ -492,7 +806,8 @@ fun ConnectionSummary(
                             "Red local"
                         },
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight =
+                        FontWeight.Bold,
                     color = TextDark
                 )
 
@@ -515,20 +830,25 @@ fun ConnectionSummary(
 fun NowPlayingCard() {
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(24.dp),
         color = CardWhite,
         shadowElevation = 3.dp
     ) {
 
         Column(
-            modifier = Modifier.padding(22.dp)
+            modifier =
+                Modifier.padding(22.dp)
         ) {
 
             Text(
-                text = "REPRODUCCIÓN ACTUAL",
+                text =
+                    "REPRODUCCIÓN ACTUAL",
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight =
+                    FontWeight.Bold,
                 color = Blue
             )
 
@@ -537,9 +857,11 @@ fun NowPlayingCard() {
             )
 
             Text(
-                text = "Ningún contenido reproduciéndose",
+                text =
+                    "Ningún contenido reproduciéndose",
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight =
+                    FontWeight.Bold,
                 color = TextDark
             )
 
@@ -565,14 +887,17 @@ fun SectionHeader(
 ) {
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        modifier =
+            Modifier.fillMaxWidth(),
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
 
         Text(
             text = title,
             fontSize = 21.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight =
+                FontWeight.Bold,
             color = TextDark
         )
 
@@ -583,20 +908,25 @@ fun SectionHeader(
         Text(
             text = action,
             fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight =
+                FontWeight.SemiBold,
             color = Blue,
-            modifier = Modifier
-                .clickable {
-                    onClick()
-                }
-                .padding(6.dp)
+            modifier =
+                Modifier
+                    .clickable {
+                        onClick()
+                    }
+                    .padding(6.dp)
         )
 
         Icon(
-            imageVector = Icons.Default.Refresh,
-            contentDescription = null,
+            imageVector =
+                Icons.Default.Refresh,
+            contentDescription =
+                null,
             tint = Blue,
-            modifier = Modifier.size(18.dp)
+            modifier =
+                Modifier.size(18.dp)
         )
     }
 }
@@ -608,8 +938,10 @@ fun DiagnosticCard(
 ) {
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(18.dp),
         color =
             if (isError) {
                 Color(0xFFFFF1F2)
@@ -620,7 +952,8 @@ fun DiagnosticCard(
 
         Text(
             text = message,
-            modifier = Modifier.padding(16.dp),
+            modifier =
+                Modifier.padding(16.dp),
             fontSize = 13.sp,
             color =
                 if (isError) {
@@ -639,12 +972,14 @@ fun EmptyState(
 ) {
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
+        modifier =
+            Modifier.fillMaxWidth(),
+        horizontalAlignment =
+            Alignment.CenterHorizontally
     ) {
 
         Spacer(
-            modifier = Modifier.height(50.dp)
+            modifier = Modifier.height(30.dp)
         )
 
         Box(
@@ -654,14 +989,18 @@ fun EmptyState(
                     color = SoftBlue,
                     shape = CircleShape
                 ),
-            contentAlignment = Alignment.Center
+            contentAlignment =
+                Alignment.Center
         ) {
 
             Icon(
-                imageVector = Icons.Default.Devices,
-                contentDescription = null,
+                imageVector =
+                    Icons.Default.Devices,
+                contentDescription =
+                    null,
                 tint = Blue,
-                modifier = Modifier.size(38.dp)
+                modifier =
+                    Modifier.size(38.dp)
             )
         }
 
@@ -677,7 +1016,8 @@ fun EmptyState(
                     "No se encontraron pantallas"
                 },
             fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight =
+                FontWeight.Bold,
             color = TextDark
         )
 
@@ -687,26 +1027,30 @@ fun EmptyState(
 
         Text(
             text =
-                "Asegúrate de que el Fire TV y este teléfono estén en la misma red Wi-Fi.",
+                "Puedes probar la IP manualmente arriba.",
             fontSize = 13.sp,
             color = TextSecondary
         )
 
         Spacer(
-            modifier = Modifier.height(20.dp)
+            modifier = Modifier.height(16.dp)
         )
 
         Button(
             onClick = onRefresh,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Blue
-            ),
-            shape = RoundedCornerShape(14.dp)
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = Blue
+                ),
+            shape =
+                RoundedCornerShape(14.dp)
         ) {
 
             Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = null
+                imageVector =
+                    Icons.Default.Refresh,
+                contentDescription =
+                    null
             )
 
             Spacer(
@@ -728,15 +1072,19 @@ fun ScreenCard(
 ) {
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(22.dp),
         color = CardWhite,
         shadowElevation = 3.dp
     ) {
 
         Row(
-            modifier = Modifier.padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier.padding(18.dp),
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
             Box(
@@ -744,16 +1092,21 @@ fun ScreenCard(
                     .size(48.dp)
                     .background(
                         color = SoftBlue,
-                        shape = RoundedCornerShape(15.dp)
+                        shape =
+                            RoundedCornerShape(15.dp)
                     ),
-                contentAlignment = Alignment.Center
+                contentAlignment =
+                    Alignment.Center
             ) {
 
                 Icon(
-                    imageVector = Icons.Default.Devices,
-                    contentDescription = null,
+                    imageVector =
+                        Icons.Default.Devices,
+                    contentDescription =
+                        null,
                     tint = Blue,
-                    modifier = Modifier.size(25.dp)
+                    modifier =
+                        Modifier.size(25.dp)
                 )
             }
 
@@ -761,19 +1114,14 @@ fun ScreenCard(
                 modifier = Modifier.size(14.dp)
             )
 
-            Column(
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Column {
 
                 Text(
                     text = receiver.name,
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight =
+                        FontWeight.Bold,
                     color = TextDark
-                )
-
-                Spacer(
-                    modifier = Modifier.height(2.dp)
                 )
 
                 Text(
@@ -789,7 +1137,8 @@ fun ScreenCard(
                 Text(
                     text =
                         when {
-                            connected && latency != null ->
+                            connected &&
+                                latency != null ->
                                 "🟢 Conectada · ${latency} ms"
 
                             connected ->
@@ -799,7 +1148,8 @@ fun ScreenCard(
                                 "⚪ Desconectada"
                         },
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight =
+                        FontWeight.SemiBold,
                     color =
                         if (connected) {
                             Success
@@ -816,19 +1166,25 @@ fun ScreenCard(
 fun AddScreenButton() {
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(20.dp),
         color = SoftBlue
     ) {
 
         Row(
-            modifier = Modifier.padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier.padding(18.dp),
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
             Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
+                imageVector =
+                    Icons.Default.Add,
+                contentDescription =
+                    null,
                 tint = Blue
             )
 
@@ -837,9 +1193,11 @@ fun AddScreenButton() {
             )
 
             Text(
-                text = "Agregar otra pantalla",
+                text =
+                    "Agregar otra pantalla",
                 fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight =
+                    FontWeight.SemiBold,
                 color = Blue
             )
         }
