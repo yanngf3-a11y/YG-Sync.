@@ -66,11 +66,11 @@ private val CardWhite = Color.White
 private val Success = Color(0xFF22C55E)
 private val Warning = Color(0xFFF59E0B)
 private val ErrorRed = Color(0xFFEF4444)
+private val SoftBlue = Color(0xFFEAF2FF)
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
-
         super.onCreate(savedInstanceState)
 
         setContent {
@@ -84,55 +84,45 @@ fun YGSyncApp() {
 
     val context = LocalContext.current
 
-    val receivers =
-        remember {
-            mutableStateListOf<Receiver>()
-        }
+    val receivers = remember {
+        mutableStateListOf<Receiver>()
+    }
 
-    val connections =
-        remember {
-            mutableStateMapOf<String, ReceiverConnection>()
-        }
+    val connections = remember {
+        mutableStateMapOf<String, ReceiverConnection>()
+    }
 
-    val latencies =
-        remember {
-            mutableStateMapOf<String, Long>()
-        }
+    val latencies = remember {
+        mutableStateMapOf<String, Long>()
+    }
 
-    val connectionStates =
-        remember {
-            mutableStateMapOf<String, Boolean>()
-        }
+    val connectionStates = remember {
+        mutableStateMapOf<String, Boolean>()
+    }
 
     var discovering by remember {
         mutableStateOf(false)
     }
 
     var diagnostic by remember {
-        mutableStateOf(
-            "Preparando descubrimiento..."
-        )
+        mutableStateOf("Preparando descubrimiento...")
     }
 
     var discoveryError by remember {
         mutableStateOf(false)
     }
 
-    val discovery =
-        remember(context) {
-            ReceiverDiscovery(context)
-        }
+    val discovery = remember(context) {
+        ReceiverDiscovery(context)
+    }
 
-    fun connectToReceiver(
-        receiver: Receiver
-    ) {
+    fun connectToReceiver(receiver: Receiver) {
 
         if (connections.containsKey(receiver.id)) {
             return
         }
 
-        val connection =
-            ReceiverConnection(receiver)
+        val connection = ReceiverConnection(receiver)
 
         connections[receiver.id] = connection
 
@@ -141,8 +131,7 @@ fun YGSyncApp() {
             diagnostic =
                 "🔗 Conectando con ${receiver.name}..."
 
-            val connected =
-                connection.connect()
+            val connected = connection.connect()
 
             if (!connected) {
 
@@ -161,20 +150,18 @@ fun YGSyncApp() {
             diagnostic =
                 "🟢 Conectado: ${receiver.name}"
 
-            val latency =
-                connection.ping()
+            val latency = connection.ping()
 
             if (latency != null) {
 
-                latencies[receiver.id] =
-                    latency
+                latencies[receiver.id] = latency
 
                 diagnostic =
                     "🟢 ${receiver.name} conectado · ${latency} ms"
+
             } else {
 
-                connectionStates[receiver.id] =
-                    false
+                connectionStates[receiver.id] = false
 
                 diagnostic =
                     "🟠 Conexión creada, pero PING falló"
@@ -189,7 +176,6 @@ fun YGSyncApp() {
         }
 
         discovering = true
-
         discoveryError = false
 
         diagnostic =
@@ -211,7 +197,6 @@ fun YGSyncApp() {
                     )
 
                 multicastLock.setReferenceCounted(false)
-
                 multicastLock.acquire()
 
                 try {
@@ -240,9 +225,7 @@ fun YGSyncApp() {
                             diagnostic =
                                 "✅ Pantalla encontrada: ${receiver.name}"
 
-                            connectToReceiver(
-                                receiver
-                            )
+                            connectToReceiver(receiver)
                         }
 
                 } finally {
@@ -255,7 +238,6 @@ fun YGSyncApp() {
             } catch (exception: Exception) {
 
                 discovering = false
-
                 discoveryError = true
 
                 diagnostic =
@@ -268,13 +250,10 @@ fun YGSyncApp() {
     }
 
     LaunchedEffect(Unit) {
-
         startDiscovery()
     }
 
-    LaunchedEffect(
-        connections.keys.toList()
-    ) {
+    LaunchedEffect(connections.keys.toList()) {
 
         while (true) {
 
@@ -284,27 +263,21 @@ fun YGSyncApp() {
 
                 if (!connection.isConnected()) {
 
-                    connectionStates[id] =
-                        false
-
-                    return@forEach
-                }
-
-                val latency =
-                    connection.ping()
-
-                if (latency != null) {
-
-                    connectionStates[id] =
-                        true
-
-                    latencies[id] =
-                        latency
+                    connectionStates[id] = false
 
                 } else {
 
-                    connectionStates[id] =
-                        false
+                    val latency = connection.ping()
+
+                    if (latency != null) {
+
+                        connectionStates[id] = true
+                        latencies[id] = latency
+
+                    } else {
+
+                        connectionStates[id] = false
+                    }
                 }
             }
         }
@@ -329,11 +302,9 @@ fun YGSyncApp() {
 
             ConnectionSummary(
                 receiverCount = receivers.size,
-                discovering = discovering,
                 connectedCount =
-                    connectionStates.values.count {
-                        it
-                    }
+                    connectionStates.values.count { it },
+                discovering = discovering
             )
 
             Spacer(
@@ -384,16 +355,14 @@ fun YGSyncApp() {
             } else {
 
                 LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement =
                         Arrangement.spacedBy(12.dp)
                 ) {
 
                     items(
                         items = receivers,
-                        key = {
-                            it.id
-                        }
+                        key = { it.id }
                     ) { receiver ->
 
                         ScreenCard(
@@ -410,7 +379,6 @@ fun YGSyncApp() {
                     }
 
                     item {
-
                         AddScreenButton()
                     }
                 }
@@ -477,8 +445,8 @@ fun Header() {
 @Composable
 fun ConnectionSummary(
     receiverCount: Int,
-    discovering: Boolean,
-    connectedCount: Int
+    connectedCount: Int,
+    discovering: Boolean
 ) {
 
     Surface(
@@ -497,9 +465,7 @@ fun ConnectionSummary(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(
-                        Color(0xFFEAF2FF)
-                    ),
+                    .background(SoftBlue),
                 contentAlignment = Alignment.Center
             ) {
 
@@ -516,7 +482,7 @@ fun ConnectionSummary(
             )
 
             Column(
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             ) {
 
                 Text(
@@ -543,15 +509,19 @@ fun ConnectionSummary(
                 )
             }
 
+            Spacer(
+                modifier = Modifier.size(8.dp)
+            )
+
             Box(
                 modifier = Modifier
                     .size(11.dp)
                     .clip(CircleShape)
                     .background(
-                        if (connectedCount > 0) {
-                            Success
-                        } else {
-                            Warning
+                        when {
+                            connectedCount > 0 -> Success
+                            discovering -> Warning
+                            else -> Color.LightGray
                         }
                     )
             )
@@ -621,7 +591,10 @@ fun SectionHeader(
             text = title,
             fontSize = 21.sp,
             fontWeight = FontWeight.Bold,
-            color = TextDark,
+            color = TextDark
+        )
+
+        Spacer(
             modifier = Modifier.weight(1f)
         )
 
@@ -691,12 +664,13 @@ fun EmptyState(
 ) {
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+
+        Spacer(
+            modifier = Modifier.height(50.dp)
+        )
 
         Icon(
             imageVector = Icons.Default.Devices,
@@ -784,9 +758,7 @@ fun ScreenCard(
                     .clip(
                         RoundedCornerShape(15.dp)
                     )
-                    .background(
-                        Color(0xFFEAF2FF)
-                    ),
+                    .background(SoftBlue),
                 contentAlignment = Alignment.Center
             ) {
 
@@ -825,14 +797,15 @@ fun ScreenCard(
 
                 Text(
                     text =
-                        if (connected) {
-                            if (latency != null) {
+                        when {
+                            connected && latency != null ->
                                 "Conectada · ${latency} ms"
-                            } else {
+
+                            connected ->
                                 "Conectada"
-                            }
-                        } else {
-                            "Desconectada"
+
+                            else ->
+                                "Desconectada"
                         },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -867,7 +840,7 @@ fun AddScreenButton() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        color = Color(0xFFEAF2FF)
+        color = SoftBlue
     ) {
 
         Row(
