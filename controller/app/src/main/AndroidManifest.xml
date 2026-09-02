@@ -2,11 +2,17 @@
 
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Permite la comunicación con los receptores YG Sync -->
+    <!-- Comunicación con los receptores -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Permite descubrir dispositivos en la red local -->
+    <!-- Estado de la red -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Estado del Wi-Fi -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- Permite recibir tráfico multicast utilizado por mDNS / NSD -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <application
         android:allowBackup="true"
