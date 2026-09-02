@@ -16,36 +16,55 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import com.ygsync.controller.data.Receiver
+import com.ygsync.controller.network.ReceiverDiscovery
+import kotlinx.coroutines.flow.collect
+
+private val Blue = Color(0xFF2563EB)
+private val SkyBlue = Color(0xFF38BDF8)
+private val Background = Color(0xFFF5F8FC)
+private val TextDark = Color(0xFF172033)
+private val TextSecondary = Color(0xFF718096)
+private val CardWhite = Color.White
+private val Success = Color(0xFF22C55E)
 
 class MainActivity : ComponentActivity() {
 
@@ -58,16 +77,49 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val Blue = Color(0xFF2563EB)
-private val SkyBlue = Color(0xFF38BDF8)
-private val Background = Color(0xFFF5F8FC)
-private val TextDark = Color(0xFF172033)
-private val TextSecondary = Color(0xFF718096)
-private val CardWhite = Color.White
-private val Success = Color(0xFF22C55E)
-
 @Composable
 fun YGSyncApp() {
+
+    val context = LocalContext.current
+
+    val receivers = remember {
+        mutableStateListOf<Receiver>()
+    }
+
+    var discovering by remember {
+        mutableStateOf(false)
+    }
+
+    fun startDiscovery() {
+        if (discovering) return
+
+        discovering = true
+
+        receivers.clear()
+
+        val discovery = ReceiverDiscovery(context)
+
+        kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.Dispatchers.Main
+        ).launch {
+
+            try {
+                discovery.discoverReceivers().collect { receiver ->
+
+                    if (receivers.none { it.id == receiver.id }) {
+                        receivers.add(receiver)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                discovering = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        startDiscovery()
+    }
 
     MaterialTheme {
 
@@ -85,11 +137,11 @@ fun YGSyncApp() {
 
                 item {
                     Spacer(modifier = Modifier.height(18.dp))
-                    Header()
+                    Header(discovering)
                 }
 
                 item {
-                    ConnectionSummary()
+                    ConnectionSummary(receivers.size)
                 }
 
                 item {
@@ -99,28 +151,39 @@ fun YGSyncApp() {
                 item {
                     SectionHeader(
                         title = "Pantallas",
-                        action = "Ver todas"
+                        action = if (discovering) {
+                            "Buscando..."
+                        } else {
+                            "Actualizar"
+                        }
                     )
                 }
 
-                item {
-                    ScreenCard(
-                        name = "Pantalla principal",
-                        location = "Receptor 01",
-                        connected = true
-                    )
+                if (receivers.isEmpty()) {
+
+                    item {
+                        EmptyReceiversCard(discovering)
+                    }
+
+                } else {
+
+                    items(
+                        items = receivers,
+                        key = { it.id }
+                    ) { receiver ->
+
+                        ScreenCard(
+                            receiver = receiver
+                        )
+                    }
                 }
 
                 item {
-                    ScreenCard(
-                        name = "Sala",
-                        location = "Receptor 02",
-                        connected = false
+                    AddScreenButton(
+                        onClick = {
+                            startDiscovery()
+                        }
                     )
-                }
-
-                item {
-                    AddScreenButton()
                 }
 
                 item {
@@ -132,7 +195,7 @@ fun YGSyncApp() {
 }
 
 @Composable
-fun Header() {
+fun Header(discovering: Boolean) {
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -160,13 +223,19 @@ fun Header() {
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(Success)
+                        .background(
+                            if (discovering) SkyBlue else Success
+                        )
                 )
 
                 Spacer(modifier = Modifier.size(6.dp))
 
                 Text(
-                    text = "Master conectado",
+                    text = if (discovering) {
+                        "Buscando pantallas..."
+                    } else {
+                        "Master conectado"
+                    },
                     fontSize = 13.sp,
                     color = TextSecondary
                 )
@@ -196,7 +265,7 @@ fun Header() {
 }
 
 @Composable
-fun ConnectionSummary() {
+fun ConnectionSummary(count: Int) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -243,7 +312,7 @@ fun ConnectionSummary() {
             ) {
 
                 Text(
-                    text = "Pantallas conectadas",
+                    text = "Pantallas detectadas",
                     fontSize = 14.sp,
                     color = TextSecondary
                 )
@@ -251,7 +320,7 @@ fun ConnectionSummary() {
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = "0 / 10",
+                    text = "$count / 10",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -259,7 +328,11 @@ fun ConnectionSummary() {
             }
 
             Text(
-                text = "Sincronizadas",
+                text = if (count == 0) {
+                    "Esperando"
+                } else {
+                    "Disponibles"
+                },
                 fontSize = 12.sp,
                 color = TextSecondary
             )
@@ -357,10 +430,7 @@ fun NowPlayingCard() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
 
-                IconButton(
-                    onClick = {}
-                ) {
-
+                IconButton(onClick = {}) {
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Anterior",
@@ -392,10 +462,7 @@ fun NowPlayingCard() {
 
                 Spacer(modifier = Modifier.size(12.dp))
 
-                IconButton(
-                    onClick = {}
-                ) {
-
+                IconButton(onClick = {}) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Siguiente",
@@ -446,7 +513,9 @@ fun SectionHeader(
 ) {
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {},
         verticalAlignment = Alignment.CenterVertically
     ) {
 
@@ -468,11 +537,81 @@ fun SectionHeader(
 }
 
 @Composable
-fun ScreenCard(
-    name: String,
-    location: String,
-    connected: Boolean
-) {
+fun EmptyReceiversCard(discovering: Boolean) {
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = CardWhite
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 1.dp
+        )
+    ) {
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
+            if (discovering) {
+
+                CircularProgressIndicator(
+                    modifier = Modifier.size(34.dp),
+                    color = Blue,
+                    strokeWidth = 3.dp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Buscando receptores",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+
+                Text(
+                    text = "Asegúrate de que las pantallas estén en la misma red Wi-Fi.",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+
+            } else {
+
+                Icon(
+                    imageVector = Icons.Default.Devices,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(38.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "No hay pantallas detectadas",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Enciende un receptor YG Sync para comenzar.",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ScreenCard(receiver: Receiver) {
 
     Card(
         modifier = Modifier
@@ -498,20 +637,14 @@ fun ScreenCard(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(15.dp))
-                    .background(
-                        if (connected) {
-                            Color(0xFFE9F8EF)
-                        } else {
-                            Color(0xFFF0F2F5)
-                        }
-                    ),
+                    .background(Color(0xFFE9F8EF)),
                 contentAlignment = Alignment.Center
             ) {
 
                 Icon(
                     imageVector = Icons.Default.Devices,
                     contentDescription = null,
-                    tint = if (connected) Success else TextSecondary,
+                    tint = Success,
                     modifier = Modifier.size(25.dp)
                 )
             }
@@ -523,7 +656,7 @@ fun ScreenCard(
             ) {
 
                 Text(
-                    text = name,
+                    text = receiver.name,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextDark
@@ -532,7 +665,7 @@ fun ScreenCard(
                 Spacer(modifier = Modifier.height(3.dp))
 
                 Text(
-                    text = location,
+                    text = "${receiver.address}:${receiver.port}",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -543,10 +676,10 @@ fun ScreenCard(
             ) {
 
                 Text(
-                    text = if (connected) "Conectada" else "Desconectada",
+                    text = "Detectada",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (connected) Success else TextSecondary
+                    color = Success
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -562,10 +695,12 @@ fun ScreenCard(
 }
 
 @Composable
-fun AddScreenButton() {
+fun AddScreenButton(
+    onClick: () -> Unit
+) {
 
     Button(
-        onClick = {},
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .height(54.dp),
@@ -583,7 +718,7 @@ fun AddScreenButton() {
         Spacer(modifier = Modifier.size(8.dp))
 
         Text(
-            text = "Agregar pantalla",
+            text = "Buscar pantallas",
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold
         )
