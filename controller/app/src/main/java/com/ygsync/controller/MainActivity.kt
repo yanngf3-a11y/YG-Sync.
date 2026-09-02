@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -39,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,8 +72,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun YGSyncApp() {
+
+    val context = LocalContext.current
 
     val receivers = remember {
         mutableStateListOf<Receiver>()
@@ -89,10 +93,8 @@ fun YGSyncApp() {
         mutableStateOf(false)
     }
 
-    val discovery = remember {
-        ReceiverDiscovery(
-            context = androidx.compose.ui.platform.LocalContext.current
-        )
+    val discovery = remember(context) {
+        ReceiverDiscovery(context)
     }
 
     fun startDiscovery() {
@@ -121,18 +123,14 @@ fun YGSyncApp() {
 
                             receivers.add(receiver)
 
-                            diagnostic =
-                                "✅ Pantalla encontrada: ${receiver.name}"
-
                         } else {
 
                             receivers[existingIndex] = receiver
-
-                            diagnostic =
-                                "✅ Pantalla encontrada: ${receiver.name}"
                         }
 
                         discovering = false
+                        diagnostic =
+                            "✅ Pantalla encontrada: ${receiver.name}"
                     }
 
             } catch (exception: Exception) {
@@ -234,7 +232,6 @@ fun YGSyncApp() {
                     }
 
                     item {
-
                         AddScreenButton()
                     }
                 }
@@ -243,7 +240,7 @@ fun YGSyncApp() {
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun Header() {
 
     Row(
@@ -296,7 +293,7 @@ fun Header() {
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun ConnectionSummary(
     receiverCount: Int,
     discovering: Boolean
@@ -371,7 +368,7 @@ fun ConnectionSummary(
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun NowPlayingCard() {
 
     Surface(
@@ -416,7 +413,7 @@ fun NowPlayingCard() {
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun SectionHeader(
     title: String,
     action: String,
@@ -464,7 +461,7 @@ fun SectionHeader(
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun DiagnosticCard(
     message: String,
     isError: Boolean
@@ -493,7 +490,7 @@ fun DiagnosticCard(
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun EmptyState(
     discovering: Boolean,
     onRefresh: () -> Unit
@@ -589,7 +586,7 @@ fun EmptyState(
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun ScreenCard(
     receiver: Receiver
 ) {
@@ -666,42 +663,34 @@ fun ScreenCard(
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
 fun AddScreenButton() {
 
-    Surface(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Transparent
+            .padding(vertical = 15.dp)
+            .clickable { },
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(15.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = null,
+            tint = Blue,
+            modifier = Modifier.size(20.dp)
+        )
 
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = Blue,
-                modifier = Modifier.size(20.dp)
-            )
+        Spacer(
+            modifier = Modifier.size(7.dp)
+        )
 
-            Spacer(
-                modifier = Modifier.size(7.dp)
-            )
-
-            Text(
-                text = "Agregar pantalla",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Blue
-            )
-        }
+        Text(
+            text = "Agregar pantalla",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Blue
+        )
     }
 }
