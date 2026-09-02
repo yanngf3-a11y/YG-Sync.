@@ -7,6 +7,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
 
@@ -19,7 +20,7 @@ class ReceiverServer(
 
     fun start(
         scope: CoroutineScope,
-        onMessage: (String) -> Unit
+        onMessage: (String, Socket) -> Unit
     ) {
 
         if (serverJob?.isActive == true) {
@@ -37,23 +38,24 @@ class ReceiverServer(
                     val socket = serverSocket?.accept()
                         ?: break
 
-                    handleClient(
-                        socket = socket,
-                        onMessage = onMessage
-                    )
+                    launch {
+
+                        handleClient(
+                            socket = socket,
+                            onMessage = onMessage
+                        )
+                    }
                 }
 
             } catch (_: Exception) {
-
-                // El servidor se detuvo o el puerto no está disponible.
-
+                // El servidor se detuvo.
             }
         }
     }
 
     private fun handleClient(
         socket: Socket,
-        onMessage: (String) -> Unit
+        onMessage: (String, Socket) -> Unit
     ) {
 
         socket.use {
@@ -68,18 +70,41 @@ class ReceiverServer(
 
                 while (true) {
 
-                    val message = reader.readLine()
-                        ?: break
+                    val message =
+                        reader.readLine()
+                            ?: break
 
                     if (message.isNotBlank()) {
-                        onMessage(message)
+
+                        onMessage(
+                            message,
+                            socket
+                        )
                     }
                 }
 
             } catch (_: Exception) {
-
                 // El cliente cerró la conexión.
             }
+        }
+    }
+
+    fun send(
+        socket: Socket,
+        message: String
+    ) {
+
+        try {
+
+            val writer = PrintWriter(
+                socket.getOutputStream(),
+                true
+            )
+
+            writer.println(message)
+
+        } catch (_: Exception) {
+            // No se pudo enviar el mensaje.
         }
     }
 
