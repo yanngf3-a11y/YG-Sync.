@@ -24,11 +24,15 @@ class ReceiverDiscovery(
         val listener = object : NsdManager.DiscoveryListener {
 
             override fun onDiscoveryStarted(serviceType: String) {
+                // Descubrimiento iniciado correctamente.
             }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
 
-                if (serviceInfo.serviceType != SERVICE_TYPE) {
+                val discoveredType =
+                    serviceInfo.serviceType
+
+                if (!discoveredType.contains("_ygsync._tcp")) {
                     return
                 }
 
@@ -40,19 +44,26 @@ class ReceiverDiscovery(
                             serviceInfo: NsdServiceInfo,
                             errorCode: Int
                         ) {
+                            // El servicio no pudo resolverse.
                         }
 
                         override fun onServiceResolved(
                             resolvedServiceInfo: NsdServiceInfo
                         ) {
 
-                            val host = resolvedServiceInfo.host
-                            val port = resolvedServiceInfo.port
+                            val host =
+                                resolvedServiceInfo.host
+
+                            val port =
+                                resolvedServiceInfo.port
+
+                            val address =
+                                host.hostAddress ?: return
 
                             val receiver = Receiver(
                                 id = resolvedServiceInfo.serviceName,
                                 name = resolvedServiceInfo.serviceName,
-                                address = host.hostAddress ?: "",
+                                address = address,
                                 port = port
                             )
 
@@ -62,16 +73,23 @@ class ReceiverDiscovery(
                 )
             }
 
-            override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+            override fun onServiceLost(
+                serviceInfo: NsdServiceInfo
+            ) {
+                // El servicio dejó de estar disponible.
             }
 
-            override fun onDiscoveryStopped(serviceType: String) {
+            override fun onDiscoveryStopped(
+                serviceType: String
+            ) {
+                // Descubrimiento detenido.
             }
 
             override fun onStartDiscoveryFailed(
                 serviceType: String,
                 errorCode: Int
             ) {
+
                 close(
                     IllegalStateException(
                         "No se pudo iniciar el descubrimiento: $errorCode"
@@ -83,17 +101,29 @@ class ReceiverDiscovery(
                 serviceType: String,
                 errorCode: Int
             ) {
+                // No requiere acción.
             }
         }
 
-        nsdManager.discoverServices(
-            SERVICE_TYPE,
-            NsdManager.PROTOCOL_DNS_SD,
-            listener
-        )
+        try {
+
+            nsdManager.discoverServices(
+                SERVICE_TYPE,
+                NsdManager.PROTOCOL_DNS_SD,
+                listener
+            )
+
+        } catch (exception: Exception) {
+
+            close(exception)
+        }
 
         awaitClose {
-            nsdManager.stopServiceDiscovery(listener)
+
+            try {
+                nsdManager.stopServiceDiscovery(listener)
+            } catch (_: Exception) {
+            }
         }
     }
 }
