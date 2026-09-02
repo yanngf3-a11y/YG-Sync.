@@ -1,5 +1,7 @@
 package com.ygsync.controller
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -111,27 +113,52 @@ fun YGSyncApp() {
 
             try {
 
-                discovery.discoverReceivers()
-                    .collect { receiver ->
+                val wifiManager =
+                    context.applicationContext
+                        .getSystemService(Context.WIFI_SERVICE)
+                            as WifiManager
 
-                        val existingIndex =
-                            receivers.indexOfFirst {
-                                it.id == receiver.id
+                val multicastLock =
+                    wifiManager.createMulticastLock(
+                        "YGSyncDiscovery"
+                    )
+
+                multicastLock.setReferenceCounted(false)
+                multicastLock.acquire()
+
+                try {
+
+                    discovery.discoverReceivers()
+                        .collect { receiver ->
+
+                            val existingIndex =
+                                receivers.indexOfFirst {
+                                    it.id == receiver.id
+                                }
+
+                            if (existingIndex == -1) {
+
+                                receivers.add(receiver)
+
+                            } else {
+
+                                receivers[existingIndex] = receiver
                             }
 
-                        if (existingIndex == -1) {
+                            discovering = false
 
-                            receivers.add(receiver)
+                            diagnostic =
+                                "✅ Pantalla encontrada: ${receiver.name}"
 
-                        } else {
-
-                            receivers[existingIndex] = receiver
+                            multicastLock.release()
                         }
 
-                        discovering = false
-                        diagnostic =
-                            "✅ Pantalla encontrada: ${receiver.name}"
+                } finally {
+
+                    if (multicastLock.isHeld) {
+                        multicastLock.release()
                     }
+                }
 
             } catch (exception: Exception) {
 
@@ -139,7 +166,10 @@ fun YGSyncApp() {
                 discoveryError = true
 
                 diagnostic =
-                    "❌ Error NSD: ${exception.message ?: "error desconocido"}"
+                    "❌ Error de descubrimiento: ${
+                        exception.message
+                            ?: "error desconocido"
+                    }"
             }
         }
     }
