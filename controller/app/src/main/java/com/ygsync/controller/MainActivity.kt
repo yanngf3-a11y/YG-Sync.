@@ -54,10 +54,10 @@ import androidx.compose.ui.unit.sp
 import com.ygsync.controller.data.Receiver
 import com.ygsync.controller.network.ReceiverConnection
 import com.ygsync.controller.network.ReceiverDiscovery
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val Blue = Color(0xFF2563EB)
 private val SkyBlue = Color(0xFF38BDF8)
@@ -108,9 +108,7 @@ fun YGSyncApp() {
     }
 
     var diagnostic by remember {
-        mutableStateOf(
-            "Preparando conexión..."
-        )
+        mutableStateOf("Preparando conexión...")
     }
 
     var discoveryError by remember {
@@ -129,17 +127,36 @@ fun YGSyncApp() {
         ReceiverDiscovery(context)
     }
 
+    fun updateReceiverState(
+        receiverId: String,
+        connected: Boolean,
+        latency: Long? = null
+    ) {
+
+        connectionStates[receiverId] = connected
+
+        if (latency != null) {
+            latencies[receiverId] = latency
+        } else {
+            latencies.remove(receiverId)
+        }
+    }
+
     fun connectToReceiver(
         receiver: Receiver
     ) {
 
+        val existing =
+            connections[receiver.id]
+
         if (
-            connections.containsKey(
-                receiver.id
-            )
+            existing != null &&
+            existing.isConnected()
         ) {
             return
         }
+
+        existing?.disconnect()
 
         val connection =
             ReceiverConnection(receiver)
@@ -147,59 +164,96 @@ fun YGSyncApp() {
         connections[receiver.id] =
             connection
 
-        CoroutineScope(
-            Dispatchers.Main
+        kotlinx.coroutines.CoroutineScope(
+            Dispatchers.Main.immediate
         ).launch {
 
-            diagnostic =
-                "🔗 Conectando con ${receiver.name}..."
-
-            val connected =
-                connection.connect()
-
-            if (!connected) {
-
-                connectionStates[
-                    receiver.id
-                ] = false
+            try {
 
                 diagnostic =
-                    "❌ No se pudo conectar con ${receiver.name}"
+                    "🔗 Conectando con ${receiver.name}..."
+
+                val connected =
+                    withContext(Dispatchers.IO) {
+                        connection.connect()
+                    }
+
+                if (!connected) {
+
+                    updateReceiverState(
+                        receiver.id,
+                        false
+                    )
+
+                    connections.remove(
+                        receiver.id
+                    )
+
+                    diagnostic =
+                        "❌ No se pudo conectar con ${receiver.name}"
+
+                    return@launch
+                }
+
+                updateReceiverState(
+                    receiver.id,
+                    true
+                )
+
+                diagnostic =
+                    "🟢 Conectado: ${receiver.name}"
+
+                val latency =
+                    withContext(Dispatchers.IO) {
+                        connection.ping()
+                    }
+
+                if (latency != null) {
+
+                    updateReceiverState(
+                        receiver.id,
+                        true,
+                        latency
+                    )
+
+                    diagnostic =
+                        "🟢 ${receiver.name} conectado · ${latency} ms"
+
+                } else {
+
+                    updateReceiverState(
+                        receiver.id,
+                        false
+                    )
+
+                    connection.disconnect()
+
+                    connections.remove(
+                        receiver.id
+                    )
+
+                    diagnostic =
+                        "🟠 TCP conectado, pero PING falló"
+                }
+
+            } catch (exception: Exception) {
+
+                connection.disconnect()
 
                 connections.remove(
                     receiver.id
                 )
 
-                return@launch
-            }
-
-            connectionStates[
-                receiver.id
-            ] = true
-
-            diagnostic =
-                "🟢 Conectado: ${receiver.name}"
-
-            val latency =
-                connection.ping()
-
-            if (latency != null) {
-
-                latencies[
-                    receiver.id
-                ] = latency
+                updateReceiverState(
+                    receiver.id,
+                    false
+                )
 
                 diagnostic =
-                    "🟢 ${receiver.name} conectado · ${latency} ms"
-
-            } else {
-
-                connectionStates[
-                    receiver.id
-                ] = false
-
-                diagnostic =
-                    "🟠 TCP conectado, pero PING falló"
+                    "❌ Error de conexión: ${
+                        exception.message
+                            ?: "error desconocido"
+                    }"
             }
         }
     }
@@ -227,8 +281,8 @@ fun YGSyncApp() {
         diagnostic =
             "🔗 Conectando directamente con $ip:8765..."
 
-        CoroutineScope(
-            Dispatchers.Main
+        kotlinx.coroutines.CoroutineScope(
+            Dispatchers.Main.immediate
         ).launch {
 
             val receiver =
@@ -239,70 +293,127 @@ fun YGSyncApp() {
                     port = 8765
                 )
 
-            val connection =
-                ReceiverConnection(receiver)
+            try {
 
-            connections[
-                receiver.id
-            ] = connection
+                connections[
+                    receiver.id
+                ]?.disconnect()
 
-            val connected =
-                connection.connect()
+                val connection =
+                    ReceiverConnection(receiver)
 
-            if (!connected) {
+                connections[
+                    receiver.id
+                ] = connection
+
+                val connected =
+                    withContext(Dispatchers.IO) {
+                        connection.connect()
+                    }
+
+                if (!connected) {
+
+                    connection.disconnect()
+
+                    connections.remove(
+                        receiver.id
+                    )
+
+                    updateReceiverState(
+                        receiver.id,
+                        false
+                    )
+
+                    diagnostic =
+                        "❌ No se pudo conectar a $ip:8765"
+
+                    return@launch
+                }
+
+                updateReceiverState(
+                    receiver.id,
+                    true
+                )
+
+                diagnostic =
+                    "🟢 TCP conectado. Comprobando PING..."
+
+                val latency =
+                    withContext(Dispatchers.IO) {
+                        connection.ping()
+                    }
+
+                if (latency != null) {
+
+                    val existingIndex =
+                        receivers.indexOfFirst {
+                            it.id == receiver.id
+                        }
+
+                    if (existingIndex == -1) {
+
+                        receivers.add(
+                            receiver
+                        )
+
+                    } else {
+
+                        receivers[
+                            existingIndex
+                        ] = receiver
+                    }
+
+                    updateReceiverState(
+                        receiver.id,
+                        true,
+                        latency
+                    )
+
+                    diagnostic =
+                        "🟢 CONEXIÓN TCP FUNCIONANDO · $latency ms"
+
+                } else {
+
+                    updateReceiverState(
+                        receiver.id,
+                        false
+                    )
+
+                    connection.disconnect()
+
+                    connections.remove(
+                        receiver.id
+                    )
+
+                    diagnostic =
+                        "🟠 TCP conectado, pero no respondió PING"
+                }
+
+            } catch (exception: Exception) {
+
+                connections[
+                    receiver.id
+                ]?.disconnect()
 
                 connections.remove(
                     receiver.id
                 )
 
-                connectionStates[
-                    receiver.id
-                ] = false
+                updateReceiverState(
+                    receiver.id,
+                    false
+                )
 
                 diagnostic =
-                    "❌ No se pudo conectar a $ip:8765"
+                    "❌ Error: ${
+                        exception.message
+                            ?: "error desconocido"
+                    }"
+
+            } finally {
 
                 manualConnecting = false
-
-                return@launch
             }
-
-            val latency =
-                connection.ping()
-
-            if (latency != null) {
-
-                receivers.add(
-                    receiver
-                )
-
-                connectionStates[
-                    receiver.id
-                ] = true
-
-                latencies[
-                    receiver.id
-                ] = latency
-
-                diagnostic =
-                    "🟢 CONEXIÓN TCP FUNCIONANDO · $latency ms"
-
-            } else {
-
-                connectionStates[
-                    receiver.id
-                ] = false
-
-                diagnostic =
-                    "🟠 TCP conectado, pero no respondió PING"
-
-                connection.disconnect()
-                connections.remove(
-                    receiver.id
-                )
-            }
-
-            manualConnecting = false
         }
     }
 
@@ -318,9 +429,12 @@ fun YGSyncApp() {
         diagnostic =
             "🔎 Buscando servicio YG Sync..."
 
-        CoroutineScope(
-            Dispatchers.Main
+        kotlinx.coroutines.CoroutineScope(
+            Dispatchers.Main.immediate
         ).launch {
+
+            var multicastLock:
+                WifiManager.MulticastLock? = null
 
             try {
 
@@ -330,7 +444,7 @@ fun YGSyncApp() {
                             Context.WIFI_SERVICE
                         ) as WifiManager
 
-                val multicastLock =
+                multicastLock =
                     wifiManager.createMulticastLock(
                         "YGSyncDiscovery"
                     )
@@ -341,63 +455,63 @@ fun YGSyncApp() {
 
                 multicastLock.acquire()
 
-                try {
+                discovery
+                    .discoverReceivers()
+                    .collect { receiver ->
 
-                    discovery
-                        .discoverReceivers()
-                        .collect { receiver ->
-
-                            val existingIndex =
-                                receivers.indexOfFirst {
-                                    it.id == receiver.id
-                                }
-
-                            if (
-                                existingIndex == -1
-                            ) {
-
-                                receivers.add(
-                                    receiver
-                                )
-
-                            } else {
-
-                                receivers[
-                                    existingIndex
-                                ] = receiver
+                        val existingIndex =
+                            receivers.indexOfFirst {
+                                it.id == receiver.id
                             }
 
-                            discovering = false
+                        if (
+                            existingIndex == -1
+                        ) {
 
-                            diagnostic =
-                                "✅ Pantalla encontrada: ${receiver.name}"
-
-                            connectToReceiver(
+                            receivers.add(
                                 receiver
                             )
+
+                        } else {
+
+                            receivers[
+                                existingIndex
+                            ] = receiver
                         }
 
-                } finally {
+                        discovering = false
 
-                    if (
-                        multicastLock.isHeld
-                    ) {
-                        multicastLock.release()
+                        diagnostic =
+                            "✅ Pantalla encontrada: ${receiver.name}"
+
+                        connectToReceiver(
+                            receiver
+                        )
                     }
-                }
 
-            } catch (
-                exception: Exception
-            ) {
+            } catch (exception: Exception) {
 
                 discovering = false
                 discoveryError = true
 
                 diagnostic =
-                    "❌ Error: ${
+                    "❌ Error de descubrimiento: ${
                         exception.message
                             ?: "error desconocido"
                     }"
+
+            } finally {
+
+                try {
+
+                    if (
+                        multicastLock?.isHeld == true
+                    ) {
+                        multicastLock.release()
+                    }
+
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -414,39 +528,68 @@ fun YGSyncApp() {
 
             delay(5000)
 
-            connections.forEach {
-                    (id, connection) ->
+            val currentConnections =
+                connections.toMap()
 
-                if (
-                    !connection.isConnected()
-                ) {
+            for (
+                entry in currentConnections
+            ) {
 
-                    connectionStates[
-                        id
-                    ] = false
+                val id =
+                    entry.key
 
-                } else {
+                val connection =
+                    entry.value
 
-                    val latency =
-                        connection.ping()
+                try {
 
                     if (
-                        latency != null
+                        !connection.isConnected()
                     ) {
 
-                        connectionStates[
-                            id
-                        ] = true
-
-                        latencies[
-                            id
-                        ] = latency
+                        updateReceiverState(
+                            id,
+                            false
+                        )
 
                     } else {
 
-                        connectionStates[
-                            id
-                        ] = false
+                        val latency =
+                            withContext(
+                                Dispatchers.IO
+                            ) {
+                                connection.ping()
+                            }
+
+                        if (latency != null) {
+
+                            updateReceiverState(
+                                id,
+                                true,
+                                latency
+                            )
+
+                        } else {
+
+                            updateReceiverState(
+                                id,
+                                false
+                            )
+
+                            connection.disconnect()
+                        }
+                    }
+
+                } catch (_: Exception) {
+
+                    updateReceiverState(
+                        id,
+                        false
+                    )
+
+                    try {
+                        connection.disconnect()
+                    } catch (_: Exception) {
                     }
                 }
             }
