@@ -17,14 +17,42 @@ android {
         versionName = "0.6.0"
     }
 
+    signingConfigs {
+        create("ygsync") {
+            val keystorePath =
+                project.findProperty("ygsyncKeystore") as String?
+
+            val storePassword =
+                project.findProperty("ygsyncStorePassword") as String?
+
+            val keyAlias =
+                project.findProperty("ygsyncKeyAlias") as String?
+
+            val keyPassword =
+                project.findProperty("ygsyncKeyPassword") as String?
+
+            if (
+                keystorePath != null &&
+                storePassword != null &&
+                keyAlias != null &&
+                keyPassword != null
+            ) {
+                storeFile = file(keystorePath)
+                this.storePassword = storePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
-            // Mantener la firma debug para permitir actualizaciones
-            // entre compilaciones del mismo proyecto.
+            signingConfig = signingConfigs.getByName("ygsync")
         }
 
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("ygsync")
         }
     }
 
