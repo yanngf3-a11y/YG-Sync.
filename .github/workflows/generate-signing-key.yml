@@ -1,0 +1,40 @@
+name: Generate YG Sync Signing Key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate keystore
+        run: |
+          keytool -genkeypair \
+            -v \
+            -keystore yg-sync-release.jks \
+            -storetype JKS \
+            -alias ygsync \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "${{ secrets.YG_KEYSTORE_PASSWORD }}" \
+            -keypass "${{ secrets.YG_KEYSTORE_PASSWORD }}" \
+            -dname "CN=YG Sync, OU=YG, O=YG Sync, L=San Jose, ST=San Jose, C=CR"
+
+      - name: Convert keystore to Base64
+        run: |
+          base64 -w 0 yg-sync-release.jks > yg-sync-keystore-base64.txt
+
+      - name: Package signing files
+        run: |
+          zip yg-sync-signing-package.zip \
+            yg-sync-release.jks \
+            yg-sync-keystore-base64.txt
+
+      - name: Upload signing package
+        uses: actions/upload-artifact@v4
+        with:
+          name: YG-Sync-Signing-Key
+          path: yg-sync-signing-package.zip
+          retention-days: 1
