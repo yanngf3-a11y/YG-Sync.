@@ -1,4 +1,4 @@
-name: Build YG Sync Receiver
+name: Build YG Sync TV
 
 on:
   workflow_dispatch:
@@ -59,12 +59,17 @@ jobs:
             -PygsyncKeyPassword="${{ secrets.YG_KEYSTORE_PASSWORD }}" \
             assembleDebug
 
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk \
+             app/build/outputs/apk/debug/YG-Sync-TV.apk
+
       - name: Verify APK
         run: |
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/YG-Sync-TV.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: YG-Sync-Receiver-v0.3.0-signed
-          path: receiver/app/build/outputs/apk/debug/app-debug.apk
+          name: YG-Sync-TV
+          path: receiver/app/build/outputs/apk/debug/YG-Sync-TV.apk
