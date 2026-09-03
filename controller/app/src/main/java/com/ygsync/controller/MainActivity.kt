@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,8 +53,11 @@ import androidx.compose.ui.unit.sp
 import com.ygsync.controller.data.Receiver
 import com.ygsync.controller.network.ReceiverConnection
 import com.ygsync.controller.network.ReceiverDiscovery
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -87,21 +89,25 @@ fun YGSyncApp() {
 
     val context = LocalContext.current
 
-    val receivers = remember {
-        mutableStateListOf<Receiver>()
-    }
+    val receivers =
+        remember {
+            mutableStateListOf<Receiver>()
+        }
 
-    val connections = remember {
-        mutableStateMapOf<String, ReceiverConnection>()
-    }
+    val connections =
+        remember {
+            mutableStateMapOf<String, ReceiverConnection>()
+        }
 
-    val latencies = remember {
-        mutableStateMapOf<String, Long>()
-    }
+    val latencies =
+        remember {
+            mutableStateMapOf<String, Long>()
+        }
 
-    val connectionStates = remember {
-        mutableStateMapOf<String, Boolean>()
-    }
+    val connectionStates =
+        remember {
+            mutableStateMapOf<String, Boolean>()
+        }
 
     var discovering by remember {
         mutableStateOf(false)
@@ -123,9 +129,14 @@ fun YGSyncApp() {
         mutableStateOf(false)
     }
 
-    val discovery = remember(context) {
-        ReceiverDiscovery(context)
+    var discoveryRequest by remember {
+        mutableStateOf(0)
     }
+
+    val discovery =
+        remember(context) {
+            ReceiverDiscovery(context)
+        }
 
     fun updateReceiverState(
         receiverId: String,
@@ -133,10 +144,12 @@ fun YGSyncApp() {
         latency: Long? = null
     ) {
 
-        connectionStates[receiverId] = connected
+        connectionStates[receiverId] =
+            connected
 
         if (latency != null) {
-            latencies[receiverId] = latency
+            latencies[receiverId] =
+                latency
         } else {
             latencies.remove(receiverId)
         }
@@ -164,7 +177,7 @@ fun YGSyncApp() {
         connections[receiver.id] =
             connection
 
-        kotlinx.coroutines.CoroutineScope(
+        CoroutineScope(
             Dispatchers.Main.immediate
         ).launch {
 
@@ -174,19 +187,23 @@ fun YGSyncApp() {
                     "🔗 Conectando con ${receiver.name}..."
 
                 val connected =
-                    withContext(Dispatchers.IO) {
+                    withContext(
+                        Dispatchers.IO
+                    ) {
                         connection.connect()
                     }
 
                 if (!connected) {
 
-                    updateReceiverState(
-                        receiver.id,
-                        false
-                    )
+                    connection.disconnect()
 
                     connections.remove(
                         receiver.id
+                    )
+
+                    updateReceiverState(
+                        receiver.id,
+                        false
                     )
 
                     diagnostic =
@@ -204,7 +221,9 @@ fun YGSyncApp() {
                     "🟢 Conectado: ${receiver.name}"
 
                 val latency =
-                    withContext(Dispatchers.IO) {
+                    withContext(
+                        Dispatchers.IO
+                    ) {
                         connection.ping()
                     }
 
@@ -217,19 +236,19 @@ fun YGSyncApp() {
                     )
 
                     diagnostic =
-                        "🟢 ${receiver.name} conectado · ${latency} ms"
+                        "🟢 ${receiver.name} conectada · ${latency} ms"
 
                 } else {
-
-                    updateReceiverState(
-                        receiver.id,
-                        false
-                    )
 
                     connection.disconnect()
 
                     connections.remove(
                         receiver.id
+                    )
+
+                    updateReceiverState(
+                        receiver.id,
+                        false
                     )
 
                     diagnostic =
@@ -281,7 +300,7 @@ fun YGSyncApp() {
         diagnostic =
             "🔗 Conectando directamente con $ip:8765..."
 
-        kotlinx.coroutines.CoroutineScope(
+        CoroutineScope(
             Dispatchers.Main.immediate
         ).launch {
 
@@ -307,7 +326,9 @@ fun YGSyncApp() {
                 ] = connection
 
                 val connected =
-                    withContext(Dispatchers.IO) {
+                    withContext(
+                        Dispatchers.IO
+                    ) {
                         connection.connect()
                     }
 
@@ -339,7 +360,9 @@ fun YGSyncApp() {
                     "🟢 TCP conectado. Comprobando PING..."
 
                 val latency =
-                    withContext(Dispatchers.IO) {
+                    withContext(
+                        Dispatchers.IO
+                    ) {
                         connection.ping()
                     }
 
@@ -374,15 +397,15 @@ fun YGSyncApp() {
 
                 } else {
 
-                    updateReceiverState(
-                        receiver.id,
-                        false
-                    )
-
                     connection.disconnect()
 
                     connections.remove(
                         receiver.id
+                    )
+
+                    updateReceiverState(
+                        receiver.id,
+                        false
                     )
 
                     diagnostic =
@@ -419,17 +442,17 @@ fun YGSyncApp() {
 
     fun startDiscovery() {
 
-        if (discovering) {
-            return
-        }
+        discoveryRequest++
 
         discovering = true
         discoveryError = false
 
         diagnostic =
-            "🔎 Buscando servicio YG Sync..."
+            "🔎 Buscando pantallas en la red..."
 
-        kotlinx.coroutines.CoroutineScope(
+        receivers.clear()
+
+        CoroutineScope(
             Dispatchers.Main.immediate
         ).launch {
 
@@ -455,39 +478,49 @@ fun YGSyncApp() {
 
                 multicastLock.acquire()
 
-                discovery
-                    .discoverReceivers()
-                    .collect { receiver ->
+                withContext(
+                    Dispatchers.IO
+                ) {
 
-                        val existingIndex =
-                            receivers.indexOfFirst {
-                                it.id == receiver.id
+                    discovery
+                        .discoverReceivers()
+                        .collect { receiver ->
+
+                            withContext(
+                                Dispatchers.Main
+                            ) {
+
+                                val existingIndex =
+                                    receivers.indexOfFirst {
+                                        it.id == receiver.id
+                                    }
+
+                                if (
+                                    existingIndex == -1
+                                ) {
+
+                                    receivers.add(
+                                        receiver
+                                    )
+
+                                } else {
+
+                                    receivers[
+                                        existingIndex
+                                    ] = receiver
+                                }
+
+                                discovering = false
+
+                                diagnostic =
+                                    "✅ Pantalla encontrada: ${receiver.name}"
+
+                                connectToReceiver(
+                                    receiver
+                                )
                             }
-
-                        if (
-                            existingIndex == -1
-                        ) {
-
-                            receivers.add(
-                                receiver
-                            )
-
-                        } else {
-
-                            receivers[
-                                existingIndex
-                            ] = receiver
                         }
-
-                        discovering = false
-
-                        diagnostic =
-                            "✅ Pantalla encontrada: ${receiver.name}"
-
-                        connectToReceiver(
-                            receiver
-                        )
-                    }
+                }
 
             } catch (exception: Exception) {
 
@@ -516,13 +549,16 @@ fun YGSyncApp() {
         }
     }
 
-    LaunchedEffect(Unit) {
-        startDiscovery()
+    LaunchedEffect(
+        discoveryRequest
+    ) {
+
+        if (discoveryRequest == 0) {
+            startDiscovery()
+        }
     }
 
-    LaunchedEffect(
-        connections.keys.toList()
-    ) {
+    LaunchedEffect(Unit) {
 
         while (true) {
 
@@ -587,10 +623,7 @@ fun YGSyncApp() {
                         false
                     )
 
-                    try {
-                        connection.disconnect()
-                    } catch (_: Exception) {
-                    }
+                    connection.disconnect()
                 }
             }
         }
@@ -602,9 +635,10 @@ fun YGSyncApp() {
     ) {
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
         ) {
 
             Header()
@@ -634,7 +668,8 @@ fun YGSyncApp() {
                 connectedCount =
                     connectionStates.values
                         .count { it },
-                discovering = discovering
+                discovering =
+                    discovering
             )
 
             Spacer(
@@ -678,7 +713,8 @@ fun YGSyncApp() {
             ) {
 
                 EmptyState(
-                    discovering = discovering,
+                    discovering =
+                        discovering,
                     onRefresh = {
                         startDiscovery()
                     }
@@ -690,9 +726,7 @@ fun YGSyncApp() {
                     modifier =
                         Modifier.fillMaxWidth(),
                     verticalArrangement =
-                        Arrangement.spacedBy(
-                            12.dp
-                        )
+                        Arrangement.spacedBy(12.dp)
                 ) {
 
                     items(
@@ -729,25 +763,28 @@ fun YGSyncApp() {
 fun Header() {
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth(),
         verticalAlignment =
             Alignment.CenterVertically
     ) {
 
         Box(
-            modifier = Modifier
-                .size(52.dp)
-                .background(
-                    brush =
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Blue,
-                                SkyBlue
-                            )
-                        ),
-                    shape =
-                        RoundedCornerShape(16.dp)
-                ),
+            modifier =
+                Modifier
+                    .size(52.dp)
+                    .background(
+                        brush =
+                            Brush.linearGradient(
+                                colors =
+                                    listOf(
+                                        Blue,
+                                        SkyBlue
+                                    )
+                            ),
+                        shape =
+                            RoundedCornerShape(16.dp)
+                    ),
             contentAlignment =
                 Alignment.Center
         ) {
@@ -764,7 +801,8 @@ fun Header() {
         }
 
         Spacer(
-            modifier = Modifier.size(14.dp)
+            modifier =
+                Modifier.size(14.dp)
         )
 
         Column {
@@ -795,7 +833,8 @@ fun ManualConnectionCard(
 ) {
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth(),
         shape =
             RoundedCornerShape(22.dp),
         color = CardWhite,
@@ -803,11 +842,13 @@ fun ManualConnectionCard(
     ) {
 
         Column(
-            modifier = Modifier.padding(20.dp)
+            modifier =
+                Modifier.padding(20.dp)
         ) {
 
             Text(
-                text = "CONEXIÓN DIRECTA",
+                text =
+                    "CONEXIÓN DIRECTA",
                 fontSize = 12.sp,
                 fontWeight =
                     FontWeight.Bold,
@@ -815,11 +856,13 @@ fun ManualConnectionCard(
             )
 
             Spacer(
-                modifier = Modifier.height(6.dp)
+                modifier =
+                    Modifier.height(6.dp)
             )
 
             Text(
-                text = "Probar conexión con Fire TV",
+                text =
+                    "Probar conexión con Fire TV",
                 fontSize = 17.sp,
                 fontWeight =
                     FontWeight.Bold,
@@ -827,12 +870,14 @@ fun ManualConnectionCard(
             )
 
             Spacer(
-                modifier = Modifier.height(12.dp)
+                modifier =
+                    Modifier.height(12.dp)
             )
 
             OutlinedTextField(
                 value = ip,
-                onValueChange = onIpChange,
+                onValueChange =
+                    onIpChange,
                 modifier =
                     Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -850,18 +895,23 @@ fun ManualConnectionCard(
             )
 
             Spacer(
-                modifier = Modifier.height(12.dp)
+                modifier =
+                    Modifier.height(12.dp)
             )
 
             Button(
-                onClick = onConnect,
+                onClick =
+                    onConnect,
                 modifier =
                     Modifier.fillMaxWidth(),
-                enabled = !connecting,
+                enabled =
+                    !connecting,
                 colors =
-                    ButtonDefaults.buttonColors(
-                        containerColor = Blue
-                    ),
+                    ButtonDefaults
+                        .buttonColors(
+                            containerColor =
+                                Blue
+                        ),
                 shape =
                     RoundedCornerShape(14.dp)
             ) {
@@ -877,7 +927,8 @@ fun ManualConnectionCard(
             }
 
             Spacer(
-                modifier = Modifier.height(8.dp)
+                modifier =
+                    Modifier.height(8.dp)
             )
 
             Text(
@@ -914,12 +965,13 @@ fun ConnectionSummary(
         ) {
 
             Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(
-                        color = SoftBlue,
-                        shape = CircleShape
-                    ),
+                modifier =
+                    Modifier
+                        .size(48.dp)
+                        .background(
+                            color = SoftBlue,
+                            shape = CircleShape
+                        ),
                 contentAlignment =
                     Alignment.Center
             ) {
@@ -936,7 +988,8 @@ fun ConnectionSummary(
             }
 
             Spacer(
-                modifier = Modifier.size(14.dp)
+                modifier =
+                    Modifier.size(14.dp)
             )
 
             Column {
@@ -996,7 +1049,8 @@ fun NowPlayingCard() {
             )
 
             Spacer(
-                modifier = Modifier.height(8.dp)
+                modifier =
+                    Modifier.height(8.dp)
             )
 
             Text(
@@ -1009,7 +1063,8 @@ fun NowPlayingCard() {
             )
 
             Spacer(
-                modifier = Modifier.height(4.dp)
+                modifier =
+                    Modifier.height(4.dp)
             )
 
             Text(
@@ -1045,32 +1100,44 @@ fun SectionHeader(
         )
 
         Spacer(
-            modifier = Modifier.size(20.dp)
+            modifier =
+                Modifier.size(20.dp)
         )
 
-        Text(
-            text = action,
-            fontSize = 13.sp,
-            fontWeight =
-                FontWeight.SemiBold,
-            color = Blue,
+        Row(
             modifier =
                 Modifier
                     .clickable {
                         onClick()
                     }
-                    .padding(6.dp)
-        )
+                    .padding(6.dp),
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
 
-        Icon(
-            imageVector =
-                Icons.Default.Refresh,
-            contentDescription =
-                null,
-            tint = Blue,
-            modifier =
-                Modifier.size(18.dp)
-        )
+            Text(
+                text = action,
+                fontSize = 13.sp,
+                fontWeight =
+                    FontWeight.SemiBold,
+                color = Blue
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.size(4.dp)
+            )
+
+            Icon(
+                imageVector =
+                    Icons.Default.Refresh,
+                contentDescription =
+                    "Actualizar",
+                tint = Blue,
+                modifier =
+                    Modifier.size(18.dp)
+            )
+        }
     }
 }
 
@@ -1122,16 +1189,18 @@ fun EmptyState(
     ) {
 
         Spacer(
-            modifier = Modifier.height(30.dp)
+            modifier =
+                Modifier.height(30.dp)
         )
 
         Box(
-            modifier = Modifier
-                .size(72.dp)
-                .background(
-                    color = SoftBlue,
-                    shape = CircleShape
-                ),
+            modifier =
+                Modifier
+                    .size(72.dp)
+                    .background(
+                        color = SoftBlue,
+                        shape = CircleShape
+                    ),
             contentAlignment =
                 Alignment.Center
         ) {
@@ -1148,7 +1217,8 @@ fun EmptyState(
         }
 
         Spacer(
-            modifier = Modifier.height(16.dp)
+            modifier =
+                Modifier.height(16.dp)
         )
 
         Text(
@@ -1165,7 +1235,8 @@ fun EmptyState(
         )
 
         Spacer(
-            modifier = Modifier.height(8.dp)
+            modifier =
+                Modifier.height(8.dp)
         )
 
         Text(
@@ -1176,15 +1247,19 @@ fun EmptyState(
         )
 
         Spacer(
-            modifier = Modifier.height(16.dp)
+            modifier =
+                Modifier.height(16.dp)
         )
 
         Button(
-            onClick = onRefresh,
+            onClick =
+                onRefresh,
             colors =
-                ButtonDefaults.buttonColors(
-                    containerColor = Blue
-                ),
+                ButtonDefaults
+                    .buttonColors(
+                        containerColor =
+                            Blue
+                    ),
             shape =
                 RoundedCornerShape(14.dp)
         ) {
@@ -1197,11 +1272,13 @@ fun EmptyState(
             )
 
             Spacer(
-                modifier = Modifier.size(8.dp)
+                modifier =
+                    Modifier.size(8.dp)
             )
 
             Text(
-                text = "Buscar nuevamente"
+                text =
+                    "Buscar nuevamente"
             )
         }
     }
@@ -1231,13 +1308,14 @@ fun ScreenCard(
         ) {
 
             Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(
-                        color = SoftBlue,
-                        shape =
-                            RoundedCornerShape(15.dp)
-                    ),
+                modifier =
+                    Modifier
+                        .size(48.dp)
+                        .background(
+                            color = SoftBlue,
+                            shape =
+                                RoundedCornerShape(15.dp)
+                        ),
                 contentAlignment =
                     Alignment.Center
             ) {
@@ -1254,7 +1332,8 @@ fun ScreenCard(
             }
 
             Spacer(
-                modifier = Modifier.size(14.dp)
+                modifier =
+                    Modifier.size(14.dp)
             )
 
             Column {
@@ -1274,7 +1353,8 @@ fun ScreenCard(
                 )
 
                 Spacer(
-                    modifier = Modifier.height(4.dp)
+                    modifier =
+                        Modifier.height(4.dp)
                 )
 
                 Text(
@@ -1332,7 +1412,8 @@ fun AddScreenButton() {
             )
 
             Spacer(
-                modifier = Modifier.size(10.dp)
+                modifier =
+                    Modifier.size(10.dp)
             )
 
             Text(
