@@ -30,11 +30,8 @@ class ReceiverService(
 
         val serviceInfo =
             NsdServiceInfo().apply {
-
                 serviceName = SERVICE_NAME
-
                 serviceType = SERVICE_TYPE
-
                 setPort(port)
             }
 
@@ -44,7 +41,6 @@ class ReceiverService(
                 override fun onServiceRegistered(
                     serviceInfo: NsdServiceInfo
                 ) {
-
                     registrationListener = this
                 }
 
@@ -52,14 +48,12 @@ class ReceiverService(
                     serviceInfo: NsdServiceInfo,
                     errorCode: Int
                 ) {
-
                     registrationListener = null
                 }
 
                 override fun onServiceUnregistered(
                     serviceInfo: NsdServiceInfo
                 ) {
-
                     registrationListener = null
                 }
 
@@ -67,7 +61,6 @@ class ReceiverService(
                     serviceInfo: NsdServiceInfo,
                     errorCode: Int
                 ) {
-
                     registrationListener = null
                 }
             }
