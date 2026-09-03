@@ -3,128 +3,250 @@ package com.ygsync.controller.network
 import com.ygsync.controller.data.Receiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.PrintWriter
-import java.net.InetSocketAddress
-import java.net.Socket
+import org.java_websocket.client.WebSocketClient
+import org.java_websocket.handshake.ServerHandshake
+import org.json.JSONObject
+import java.net.URI
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class ReceiverConnection(
     private val receiver: Receiver
 ) {
 
-    private var socket: Socket? = null
-    private var writer: PrintWriter? = null
-    private var reader: BufferedReader? = null
+    companion object {
+        private const val CONNECT_TIMEOUT_MS = 5000L
+        private const val RESPONSE_TIMEOUT_MS = 3000L
+    }
+
+    private var webSocket: WebSocketClient? = null
+
+    private val connected =
+        AtomicBoolean(false)
+
+    private val connectionLock =
+        Any()
+
+    private fun createClient(): WebSocketClient {
+
+        val uri =
+            URI(
+                "ws://${receiver.address}:${receiver.port}"
+            )
+
+        return object : WebSocketClient(uri) {
+
+            override fun onOpen(
+                handshake: ServerHandshake?
+            ) {
+
+                connected.set(true)
+            }
+
+            override fun onMessage(
+                message: String
+            ) {
+                synchronized(responseLock) {
+
+                    lastResponse =
+                        message
+
+                    responseLock.notifyAll()
+                }
+            }
+
+            override fun onClose(
+                code: Int,
+                reason: String?,
+                remote: Boolean
+            ) {
+
+                connected.set(false)
+
+                synchronized(responseLock) {
+
+                    lastResponse =
+                        null
+
+                    responseLock.notifyAll()
+                }
+            }
+
+            override fun onError(
+                exception: Exception?
+            ) {
+
+                connected.set(false)
+
+                synchronized(responseLock) {
+
+                    lastResponse =
+                        null
+
+                    responseLock.notifyAll()
+                }
+            }
+        }
+    }
+
+    private val responseLock =
+        Object()
+
+    private var lastResponse: String? = null
 
     suspend fun connect(): Boolean =
         withContext(Dispatchers.IO) {
 
             disconnect()
 
-            try {
+            synchronized(connectionLock) {
 
-                val newSocket = Socket()
+                try {
 
-                newSocket.connect(
-                    InetSocketAddress(
-                        receiver.address,
-                        receiver.port
-                    ),
-                    3000
-                )
+                    val client =
+                        createClient()
 
-                newSocket.soTimeout = 0
-                newSocket.keepAlive = true
-                newSocket.tcpNoDelay = true
+                    webSocket =
+                        client
 
-                socket = newSocket
+                    client.connect()
 
-                writer = PrintWriter(
-                    newSocket.getOutputStream(),
+                    val startTime =
+                        System.currentTimeMillis()
+
+                    while (
+                        !connected.get() &&
+                        System.currentTimeMillis() -
+                            startTime <
+                            CONNECT_TIMEOUT_MS
+                    ) {
+
+                        Thread.sleep(25)
+                    }
+
+                    if (!connected.get()) {
+
+                        try {
+                            client.close()
+                        } catch (_: Exception) {
+                        }
+
+                        webSocket =
+                            null
+
+                        return@withContext false
+                    }
+
                     true
-                )
 
-                reader = BufferedReader(
-                    InputStreamReader(
-                        newSocket.getInputStream()
-                    )
-                )
+                } catch (_: Exception) {
 
-                true
+                    disconnect()
 
-            } catch (_: Exception) {
-
-                disconnect()
-
-                false
+                    false
+                }
             }
         }
 
     suspend fun ping(): Long? =
         withContext(Dispatchers.IO) {
 
-            val currentSocket =
-                socket
-
-            val currentWriter =
-                writer
-
-            val currentReader =
-                reader
+            val client =
+                webSocket
 
             if (
-                currentSocket == null ||
-                currentWriter == null ||
-                currentReader == null
+                client == null ||
+                !connected.get() ||
+                !client.isOpen
             ) {
                 return@withContext null
             }
 
             try {
 
-                if (
-                    currentSocket.isClosed ||
-                    !currentSocket.isConnected
-                ) {
-                    disconnect()
-                    return@withContext null
+                val commandId =
+                    UUID.randomUUID()
+                        .toString()
+
+                val message =
+                    JSONObject()
+                        .apply {
+
+                            put(
+                                "type",
+                                "ping"
+                            )
+
+                            put(
+                                "commandId",
+                                commandId
+                            )
+
+                            put(
+                                "senderId",
+                                "ygsync-controller"
+                            )
+
+                            put(
+                                "timestamp",
+                                System.currentTimeMillis()
+                            )
+
+                            put(
+                                "payload",
+                                JSONObject()
+                            )
+                        }
+                        .toString()
+
+                synchronized(responseLock) {
+
+                    lastResponse =
+                        null
                 }
 
                 val startTime =
                     System.currentTimeMillis()
 
-                currentWriter.println("PING")
+                client.send(message)
 
-                if (currentWriter.checkError()) {
-                    disconnect()
+                val response =
+                    waitForResponse(
+                        commandId,
+                        RESPONSE_TIMEOUT_MS
+                    )
+
+                if (response == null) {
+
+                    /*
+                     * El servidor WebSocket actual todavía
+                     * debe implementar la respuesta "pong".
+                     * No cerramos inmediatamente la conexión
+                     * para permitir la migración progresiva.
+                     */
                     return@withContext null
                 }
 
-                var pongReceived = false
+                val elapsed =
+                    System.currentTimeMillis() -
+                        startTime
 
-                while (!pongReceived) {
-
-                    val response =
-                        currentReader.readLine()
-
-                    if (response == null) {
-
-                        disconnect()
-
-                        return@withContext null
-                    }
-
-                    if (response == "PONG") {
-                        pongReceived = true
-                    }
+                if (
+                    isSuccessfulResponse(
+                        response,
+                        commandId
+                    )
+                ) {
+                    elapsed
+                } else {
+                    null
                 }
-
-                System.currentTimeMillis() - startTime
 
             } catch (_: Exception) {
 
-                disconnect()
+                connected.set(false)
 
                 null
             }
@@ -135,43 +257,65 @@ class ReceiverConnection(
     ): Boolean =
         withContext(Dispatchers.IO) {
 
-            val currentSocket =
-                socket
-
-            val currentWriter =
-                writer
+            val client =
+                webSocket
 
             if (
-                currentSocket == null ||
-                currentWriter == null
+                client == null ||
+                !connected.get() ||
+                !client.isOpen
             ) {
                 return@withContext false
             }
 
             try {
 
-                if (
-                    currentSocket.isClosed ||
-                    !currentSocket.isConnected
-                ) {
-                    disconnect()
-                    return@withContext false
-                }
+                val json =
+                    convertLegacyCommand(
+                        message
+                    )
 
-                currentWriter.println(message)
-
-                if (currentWriter.checkError()) {
-
-                    disconnect()
-
-                    return@withContext false
-                }
+                client.send(
+                    json.toString()
+                )
 
                 true
 
             } catch (_: Exception) {
 
-                disconnect()
+                connected.set(false)
+
+                false
+            }
+        }
+
+    suspend fun sendJson(
+        message: JSONObject
+    ): Boolean =
+        withContext(Dispatchers.IO) {
+
+            val client =
+                webSocket
+
+            if (
+                client == null ||
+                !connected.get() ||
+                !client.isOpen
+            ) {
+                return@withContext false
+            }
+
+            try {
+
+                client.send(
+                    message.toString()
+                )
+
+                true
+
+            } catch (_: Exception) {
+
+                connected.set(false)
 
                 false
             }
@@ -179,33 +323,282 @@ class ReceiverConnection(
 
     fun isConnected(): Boolean {
 
-        val currentSocket =
-            socket
+        val client =
+            webSocket
 
-        return currentSocket != null &&
-            currentSocket.isConnected &&
-            !currentSocket.isClosed
+        return connected.get() &&
+            client != null &&
+            client.isOpen
     }
 
     fun disconnect() {
 
-        try {
-            reader?.close()
-        } catch (_: Exception) {
+        connected.set(false)
+
+        val client =
+            webSocket
+
+        webSocket =
+            null
+
+        synchronized(responseLock) {
+
+            lastResponse =
+                null
+
+            responseLock.notifyAll()
         }
 
         try {
-            writer?.close()
+
+            client?.close()
+
         } catch (_: Exception) {
         }
+    }
 
-        try {
-            socket?.close()
-        } catch (_: Exception) {
+    private fun waitForResponse(
+        commandId: String,
+        timeoutMs: Long
+    ): String? {
+
+        val deadline =
+            System.currentTimeMillis() +
+                timeoutMs
+
+        synchronized(responseLock) {
+
+            while (true) {
+
+                val response =
+                    lastResponse
+
+                if (
+                    response != null &&
+                    responseContainsCommandId(
+                        response,
+                        commandId
+                    )
+                ) {
+                    return response
+                }
+
+                val remaining =
+                    deadline -
+                        System.currentTimeMillis()
+
+                if (remaining <= 0) {
+                    return null
+                }
+
+                try {
+
+                    responseLock.wait(
+                        remaining
+                    )
+
+                } catch (_: InterruptedException) {
+
+                    Thread.currentThread()
+                        .interrupt()
+
+                    return null
+                }
+            }
         }
+    }
 
-        reader = null
-        writer = null
-        socket = null
+    private fun responseContainsCommandId(
+        response: String,
+        commandId: String
+    ): Boolean {
+
+        return try {
+
+            val json =
+                JSONObject(response)
+
+            json.optString(
+                "commandId",
+                ""
+            ) == commandId
+
+        } catch (_: Exception) {
+
+            false
+        }
+    }
+
+    private fun isSuccessfulResponse(
+        response: String,
+        commandId: String
+    ): Boolean {
+
+        return try {
+
+            val json =
+                JSONObject(response)
+
+            if (
+                json.optString(
+                    "commandId",
+                    ""
+                ) != commandId
+            ) {
+                return false
+            }
+
+            json.optBoolean(
+                "success",
+                json.optJSONObject(
+                    "payload"
+                )?.optBoolean(
+                    "success",
+                    false
+                ) ?: false
+            )
+
+        } catch (_: Exception) {
+
+            false
+        }
+    }
+
+    private fun convertLegacyCommand(
+        command: String
+    ): JSONObject {
+
+        val cleanCommand =
+            command.trim()
+
+        val commandId =
+            UUID.randomUUID()
+                .toString()
+
+        val payload =
+            JSONObject()
+
+        val type =
+            when {
+
+                cleanCommand.equals(
+                    "PLAY",
+                    ignoreCase = true
+                ) ->
+                    "play"
+
+                cleanCommand.equals(
+                    "PAUSE",
+                    ignoreCase = true
+                ) ->
+                    "pause"
+
+                cleanCommand.equals(
+                    "STOP",
+                    ignoreCase = true
+                ) ->
+                    "stop"
+
+                cleanCommand.startsWith(
+                    "LOAD_VIDEO|",
+                    ignoreCase = true
+                ) -> {
+
+                    val videoId =
+                        cleanCommand
+                            .substringAfter(
+                                "|"
+                            )
+                            .trim()
+
+                    payload.put(
+                        "videoId",
+                        videoId
+                    )
+
+                    "open"
+                }
+
+                cleanCommand.startsWith(
+                    "SEEK|",
+                    ignoreCase = true
+                ) -> {
+
+                    val position =
+                        cleanCommand
+                            .substringAfter(
+                                "|"
+                            )
+                            .trim()
+                            .toLongOrNull()
+                            ?: 0L
+
+                    payload.put(
+                        "positionMs",
+                        position
+                    )
+
+                    "seek"
+                }
+
+                cleanCommand.startsWith(
+                    "SET_VOLUME|",
+                    ignoreCase = true
+                ) -> {
+
+                    val volume =
+                        cleanCommand
+                            .substringAfter(
+                                "|"
+                            )
+                            .trim()
+                            .toFloatOrNull()
+                            ?: 1f
+
+                    payload.put(
+                        "volume",
+                        volume
+                    )
+
+                    "setVolume"
+                }
+
+                cleanCommand.equals(
+                    "GET_STATUS",
+                    ignoreCase = true
+                ) ->
+                    "getStatus"
+
+                else ->
+                    cleanCommand.lowercase()
+            }
+
+        return JSONObject().apply {
+
+            put(
+                "type",
+                type
+            )
+
+            put(
+                "commandId",
+                commandId
+            )
+
+            put(
+                "senderId",
+                "ygsync-controller"
+            )
+
+            put(
+                "timestamp",
+                System.currentTimeMillis()
+            )
+
+            put(
+                "payload",
+                payload
+            )
+        }
     }
 }
