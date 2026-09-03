@@ -1,204 +1,251 @@
 package com.ygsync.controller.network
 
 import android.content.Context
-import android.net.nsd.NsdManager
-import android.net.nsd.NsdServiceInfo
 import com.ygsync.controller.data.Receiver
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.InetSocketAddress
 
 class ReceiverDiscovery(
-    context: Context
+    private val context: Context
 ) {
 
-    private val nsdManager =
-        context.getSystemService(
-            Context.NSD_SERVICE
-        ) as NsdManager
-
     companion object {
-        const val SERVICE_TYPE = "_ygsync._tcp."
+        const val DISCOVERY_PORT = 8766
+        const val DISCOVERY_REQUEST = "YG_SYNC_DISCOVER"
+        const val DISCOVERY_RESPONSE = "YG_SYNC_RECEIVER"
+
+        private const val DISCOVERY_TIME_MS = 4000L
     }
 
     fun discoverReceivers(): Flow<Receiver> =
-        callbackFlow {
+        flow {
 
-            val resolvedIds =
-                mutableSetOf<String>()
-
-            var stopped = false
-
-            fun resolveService(
-                serviceInfo: NsdServiceInfo
-            ) {
-
-                if (stopped) {
-                    return
+            val receivers =
+                withContext(Dispatchers.IO) {
+                    discoverUdp()
                 }
+
+            for (receiver in receivers) {
+                emit(receiver)
+            }
+        }
+
+    private fun discoverUdp(): List<Receiver> {
+
+        val found =
+            linkedMapOf<String, Receiver>()
+
+        var socket: DatagramSocket? = null
+
+        try {
+
+            socket =
+                DatagramSocket(null).apply {
+
+                    reuseAddress = true
+
+                    broadcast = true
+
+                    bind(
+                        InetSocketAddress(
+                            0
+                        )
+                    )
+
+                    soTimeout = 500
+                }
+
+            val requestBytes =
+                DISCOVERY_REQUEST.toByteArray(
+                    Charsets.UTF_8
+                )
+
+            val broadcastAddresses =
+                getBroadcastAddresses()
+
+            for (address in broadcastAddresses) {
 
                 try {
 
-                    nsdManager.resolveService(
-                        serviceInfo,
-                        object : NsdManager.ResolveListener {
+                    val packet =
+                        DatagramPacket(
+                            requestBytes,
+                            requestBytes.size,
+                            address,
+                            DISCOVERY_PORT
+                        )
 
-                            override fun onResolveFailed(
-                                serviceInfo: NsdServiceInfo,
-                                errorCode: Int
-                            ) {
-                                // El servicio puede desaparecer
-                                // mientras se está resolviendo.
-                            }
-
-                            override fun onServiceResolved(
-                                resolvedServiceInfo: NsdServiceInfo
-                            ) {
-
-                                if (stopped) {
-                                    return
-                                }
-
-                                val host =
-                                    resolvedServiceInfo.host
-                                        ?: return
-
-                                val address =
-                                    host.hostAddress
-                                        ?: return
-
-                                val port =
-                                    resolvedServiceInfo.port
-
-                                if (address.isBlank()) {
-                                    return
-                                }
-
-                                if (port <= 0) {
-                                    return
-                                }
-
-                                val id =
-                                    "$address:$port"
-
-                                if (
-                                    !resolvedIds.add(id)
-                                ) {
-                                    return
-                                }
-
-                                val name =
-                                    resolvedServiceInfo.serviceName
-                                        .ifBlank {
-                                            "YG Sync Receiver"
-                                        }
-
-                                val receiver =
-                                    Receiver(
-                                        id = id,
-                                        name = name,
-                                        address = address,
-                                        port = port
-                                    )
-
-                                trySend(receiver)
-                            }
-                        }
-                    )
+                    socket.send(packet)
 
                 } catch (_: Exception) {
-                    // No interrumpir la búsqueda.
                 }
             }
 
-            val listener =
-                object : NsdManager.DiscoveryListener {
+            val startTime =
+                System.currentTimeMillis()
 
-                    override fun onDiscoveryStarted(
-                        serviceType: String
-                    ) {
-                    }
+            val buffer =
+                ByteArray(2048)
 
-                    override fun onServiceFound(
-                        serviceInfo: NsdServiceInfo
-                    ) {
+            while (
+                System.currentTimeMillis() -
+                    startTime <
+                    DISCOVERY_TIME_MS
+            ) {
 
-                        if (stopped) {
-                            return
-                        }
+                try {
 
-                        val type =
-                            serviceInfo.serviceType
-                                ?: return
-
-                        if (
-                            type.contains(
-                                "_ygsync._tcp",
-                                ignoreCase = true
-                            )
-                        ) {
-                            resolveService(
-                                serviceInfo
-                            )
-                        }
-                    }
-
-                    override fun onServiceLost(
-                        serviceInfo: NsdServiceInfo
-                    ) {
-                    }
-
-                    override fun onDiscoveryStopped(
-                        serviceType: String
-                    ) {
-                    }
-
-                    override fun onStartDiscoveryFailed(
-                        serviceType: String,
-                        errorCode: Int
-                    ) {
-
-                        stopped = true
-
-                        close(
-                            IllegalStateException(
-                                "NSD_START_ERROR:$errorCode"
-                            )
+                    val packet =
+                        DatagramPacket(
+                            buffer,
+                            buffer.size
                         )
+
+                    socket.receive(packet)
+
+                    val message =
+                        String(
+                            packet.data,
+                            packet.offset,
+                            packet.length,
+                            Charsets.UTF_8
+                        ).trim()
+
+                    if (
+                        !message.startsWith(
+                            "$DISCOVERY_RESPONSE|"
+                        )
+                    ) {
+                        continue
                     }
 
-                    override fun onStopDiscoveryFailed(
-                        serviceType: String,
-                        errorCode: Int
-                    ) {
+                    val parts =
+                        message.split(
+                            "|"
+                        )
+
+                    if (parts.size < 3) {
+                        continue
                     }
+
+                    val name =
+                        parts[1].ifBlank {
+                            "YG Sync Receiver"
+                        }
+
+                    val port =
+                        parts[2].toIntOrNull()
+                            ?: continue
+
+                    if (port <= 0) {
+                        continue
+                    }
+
+                    val address =
+                        packet.address.hostAddress
+                            ?: continue
+
+                    val id =
+                        "$address:$port"
+
+                    if (!found.containsKey(id)) {
+
+                        found[id] =
+                            Receiver(
+                                id = id,
+                                name = name,
+                                address = address,
+                                port = port
+                            )
+                    }
+
+                } catch (_: java.net.SocketTimeoutException) {
+
+                    // Seguir esperando respuestas.
+                } catch (_: Exception) {
                 }
+            }
+
+        } catch (_: Exception) {
+
+            // El descubrimiento automático
+            // no debe cerrar el Controller.
+
+        } finally {
+
+            try {
+                socket?.close()
+            } catch (_: Exception) {
+            }
+        }
+
+        return found.values.toList()
+    }
+
+    private fun getBroadcastAddresses():
+        List<InetAddress> {
+
+        val addresses =
+            mutableListOf<InetAddress>()
+
+        try {
+
+            val interfaces =
+                java.net.NetworkInterface
+                    .getNetworkInterfaces()
+
+            while (interfaces.hasMoreElements()) {
+
+                val networkInterface =
+                    interfaces.nextElement()
+
+                if (
+                    networkInterface.isLoopback ||
+                    !networkInterface.isUp
+                ) {
+                    continue
+                }
+
+                for (
+                    interfaceAddress
+                    in networkInterface.interfaceAddresses
+                ) {
+
+                    val broadcast =
+                        interfaceAddress.broadcast
+                            ?: continue
+
+                    addresses.add(
+                        broadcast
+                    )
+                }
+            }
+
+        } catch (_: Exception) {
+        }
+
+        if (addresses.isEmpty()) {
 
             try {
 
-                nsdManager.discoverServices(
-                    SERVICE_TYPE,
-                    NsdManager.PROTOCOL_DNS_SD,
-                    listener
+                addresses.add(
+                    InetAddress.getByName(
+                        "255.255.255.255"
+                    )
                 )
 
-            } catch (exception: Exception) {
-
-                stopped = true
-
-                close(exception)
-            }
-
-            awaitClose {
-
-                stopped = true
-
-                try {
-                    nsdManager.stopServiceDiscovery(
-                        listener
-                    )
-                } catch (_: Exception) {
-                }
+            } catch (_: Exception) {
             }
         }
+
+        return addresses.distinctBy {
+            it.hostAddress
+        }
+    }
 }
