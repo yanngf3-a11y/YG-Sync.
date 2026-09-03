@@ -24,50 +24,91 @@ class ReceiverDiscovery(
     fun discoverReceivers(): Flow<Receiver> =
         callbackFlow {
 
+            val resolvedIds =
+                mutableSetOf<String>()
+
+            var stopped = false
+
             fun resolveService(
                 serviceInfo: NsdServiceInfo
             ) {
 
-                nsdManager.resolveService(
-                    serviceInfo,
-                    object : NsdManager.ResolveListener {
+                if (stopped) {
+                    return
+                }
 
-                        override fun onResolveFailed(
-                            serviceInfo: NsdServiceInfo,
-                            errorCode: Int
-                        ) {
+                try {
+
+                    nsdManager.resolveService(
+                        serviceInfo,
+                        object : NsdManager.ResolveListener {
+
+                            override fun onResolveFailed(
+                                serviceInfo: NsdServiceInfo,
+                                errorCode: Int
+                            ) {
+                                // El servicio puede desaparecer
+                                // mientras se está resolviendo.
+                            }
+
+                            override fun onServiceResolved(
+                                resolvedServiceInfo: NsdServiceInfo
+                            ) {
+
+                                if (stopped) {
+                                    return
+                                }
+
+                                val host =
+                                    resolvedServiceInfo.host
+                                        ?: return
+
+                                val address =
+                                    host.hostAddress
+                                        ?: return
+
+                                val port =
+                                    resolvedServiceInfo.port
+
+                                if (address.isBlank()) {
+                                    return
+                                }
+
+                                if (port <= 0) {
+                                    return
+                                }
+
+                                val id =
+                                    "$address:$port"
+
+                                if (
+                                    !resolvedIds.add(id)
+                                ) {
+                                    return
+                                }
+
+                                val name =
+                                    resolvedServiceInfo.serviceName
+                                        .ifBlank {
+                                            "YG Sync Receiver"
+                                        }
+
+                                val receiver =
+                                    Receiver(
+                                        id = id,
+                                        name = name,
+                                        address = address,
+                                        port = port
+                                    )
+
+                                trySend(receiver)
+                            }
                         }
+                    )
 
-                        override fun onServiceResolved(
-                            resolvedServiceInfo: NsdServiceInfo
-                        ) {
-
-                            val host =
-                                resolvedServiceInfo.host
-                                    ?: return
-
-                            val address =
-                                host.hostAddress
-                                    ?: return
-
-                            val port =
-                                resolvedServiceInfo.port
-
-                            val name =
-                                resolvedServiceInfo.serviceName
-
-                            val receiver =
-                                Receiver(
-                                    id = "$address:$port",
-                                    name = name,
-                                    address = address,
-                                    port = port
-                                )
-
-                            trySend(receiver)
-                        }
-                    }
-                )
+                } catch (_: Exception) {
+                    // No interrumpir la búsqueda.
+                }
             }
 
             val listener =
@@ -82,11 +123,20 @@ class ReceiverDiscovery(
                         serviceInfo: NsdServiceInfo
                     ) {
 
-                        if (
-                            serviceInfo.serviceType
-                                .contains("_ygsync._tcp")
-                        ) {
+                        if (stopped) {
+                            return
+                        }
 
+                        val type =
+                            serviceInfo.serviceType
+                                ?: return
+
+                        if (
+                            type.contains(
+                                "_ygsync._tcp",
+                                ignoreCase = true
+                            )
+                        ) {
                             resolveService(
                                 serviceInfo
                             )
@@ -107,6 +157,8 @@ class ReceiverDiscovery(
                         serviceType: String,
                         errorCode: Int
                     ) {
+
+                        stopped = true
 
                         close(
                             IllegalStateException(
@@ -132,17 +184,19 @@ class ReceiverDiscovery(
 
             } catch (exception: Exception) {
 
+                stopped = true
+
                 close(exception)
             }
 
             awaitClose {
 
-                try {
+                stopped = true
 
+                try {
                     nsdManager.stopServiceDiscovery(
                         listener
                     )
-
                 } catch (_: Exception) {
                 }
             }
