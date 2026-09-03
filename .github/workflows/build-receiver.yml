@@ -40,13 +40,13 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.YG_KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > yg-sync-release.jks
+          echo "$KEYSTORE_BASE64" | base64 --decode > app/yg-sync-release.jks
 
       - name: Verify signing keystore
         run: |
-          test -s yg-sync-release.jks
+          test -s app/yg-sync-release.jks
           keytool -list \
-            -keystore yg-sync-release.jks \
+            -keystore app/yg-sync-release.jks \
             -storepass "${{ secrets.YG_KEYSTORE_PASSWORD }}" \
             -alias ygsync
 
