@@ -25,7 +25,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -55,7 +59,6 @@ import com.ygsync.controller.network.ReceiverConnection
 import com.ygsync.controller.network.ReceiverDiscovery
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -131,6 +134,18 @@ fun YGSyncApp() {
 
     var discoveryRequest by remember {
         mutableStateOf(0)
+    }
+
+    var videoId by remember {
+        mutableStateOf("")
+    }
+
+    var currentVideo by remember {
+        mutableStateOf("")
+    }
+
+    var commandRunning by remember {
+        mutableStateOf(false)
     }
 
     val discovery =
@@ -549,6 +564,97 @@ fun YGSyncApp() {
         }
     }
 
+    fun sendCommand(
+        command: String,
+        successMessage: String
+    ) {
+
+        if (commandRunning) {
+            return
+        }
+
+        val activeConnections =
+            connections
+                .filter {
+                    connectionStates[it.key] == true &&
+                            it.value.isConnected()
+                }
+
+        if (activeConnections.isEmpty()) {
+
+            diagnostic =
+                "⚠️ No hay pantallas conectadas"
+
+            return
+        }
+
+        commandRunning = true
+
+        CoroutineScope(
+            Dispatchers.Main.immediate
+        ).launch {
+
+            var successCount = 0
+
+            for (
+                entry in activeConnections
+            ) {
+
+                val result =
+                    withContext(
+                        Dispatchers.IO
+                    ) {
+                        entry.value.send(
+                            command
+                        )
+                    }
+
+                if (result) {
+                    successCount++
+                }
+            }
+
+            commandRunning = false
+
+            diagnostic =
+                if (
+                    successCount ==
+                    activeConnections.size
+                ) {
+
+                    "🟢 $successMessage · $successCount pantalla(s)"
+
+                } else {
+
+                    "🟠 $successMessage · $successCount/${activeConnections.size} respondieron"
+                }
+        }
+    }
+
+    fun loadVideo() {
+
+        val cleanVideoId =
+            videoId.trim()
+
+        if (cleanVideoId.isBlank()) {
+
+            diagnostic =
+                "⚠️ Introduce un ID de YouTube"
+
+            return
+        }
+
+        currentVideo =
+            cleanVideoId
+
+        sendCommand(
+            command =
+                "LOAD_VIDEO|$cleanVideoId",
+            successMessage =
+                "Video enviado"
+        )
+    }
+
     LaunchedEffect(
         discoveryRequest
     ) {
@@ -676,7 +782,36 @@ fun YGSyncApp() {
                 modifier = Modifier.height(20.dp)
             )
 
-            NowPlayingCard()
+            NowPlayingCard(
+                videoId = videoId,
+                currentVideo = currentVideo,
+                onVideoIdChange = {
+                    videoId = it
+                },
+                onLoad = {
+                    loadVideo()
+                },
+                onPlay = {
+                    sendCommand(
+                        command = "PLAY",
+                        successMessage = "PLAY enviado"
+                    )
+                },
+                onPause = {
+                    sendCommand(
+                        command = "PAUSE",
+                        successMessage = "PAUSE enviado"
+                    )
+                },
+                onStop = {
+                    sendCommand(
+                        command = "STOP",
+                        successMessage = "STOP enviado"
+                    )
+                },
+                commandRunning =
+                    commandRunning
+            )
 
             Spacer(
                 modifier = Modifier.height(24.dp)
@@ -1023,7 +1158,16 @@ fun ConnectionSummary(
 }
 
 @Composable
-fun NowPlayingCard() {
+fun NowPlayingCard(
+    videoId: String,
+    currentVideo: String,
+    onVideoIdChange: (String) -> Unit,
+    onLoad: () -> Unit,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onStop: () -> Unit,
+    commandRunning: Boolean
+) {
 
     Surface(
         modifier =
@@ -1039,14 +1183,35 @@ fun NowPlayingCard() {
                 Modifier.padding(22.dp)
         ) {
 
-            Text(
-                text =
-                    "REPRODUCCIÓN ACTUAL",
-                fontSize = 12.sp,
-                fontWeight =
-                    FontWeight.Bold,
-                color = Blue
-            )
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.VideoLibrary,
+                    contentDescription =
+                        null,
+                    tint = Blue,
+                    modifier =
+                        Modifier.size(22.dp)
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.size(8.dp)
+                )
+
+                Text(
+                    text =
+                        "CONTROL DE REPRODUCCIÓN",
+                    fontSize = 12.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color = Blue
+                )
+            }
 
             Spacer(
                 modifier =
@@ -1055,7 +1220,11 @@ fun NowPlayingCard() {
 
             Text(
                 text =
-                    "Ningún contenido reproduciéndose",
+                    if (currentVideo.isBlank()) {
+                        "Selecciona un video de YouTube"
+                    } else {
+                        "Video cargado: $currentVideo"
+                    },
                 fontSize = 18.sp,
                 fontWeight =
                     FontWeight.Bold,
@@ -1064,15 +1233,184 @@ fun NowPlayingCard() {
 
             Spacer(
                 modifier =
-                    Modifier.height(4.dp)
+                    Modifier.height(12.dp)
             )
 
-            Text(
-                text =
-                    "Conecta una pantalla para comenzar.",
-                fontSize = 14.sp,
-                color = TextSecondary
+            OutlinedTextField(
+                value = videoId,
+                onValueChange =
+                    onVideoIdChange,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled =
+                    !commandRunning,
+                label = {
+                    Text("ID del video de YouTube")
+                },
+                placeholder = {
+                    Text("Ejemplo: dQw4w9WgXcQ")
+                },
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType =
+                            KeyboardType.Ascii
+                    )
             )
+
+            Spacer(
+                modifier =
+                    Modifier.height(12.dp)
+            )
+
+            Button(
+                onClick =
+                    onLoad,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                enabled =
+                    !commandRunning &&
+                            videoId.isNotBlank(),
+                colors =
+                    ButtonDefaults
+                        .buttonColors(
+                            containerColor =
+                                Blue
+                        ),
+                shape =
+                    RoundedCornerShape(14.dp)
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.VideoLibrary,
+                    contentDescription =
+                        null
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.size(8.dp)
+                )
+
+                Text(
+                    text =
+                        if (commandRunning) {
+                            "Enviando..."
+                        } else {
+                            "Cargar video en pantallas"
+                        }
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(10.dp)
+            )
+
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(8.dp)
+            ) {
+
+                Button(
+                    onClick =
+                        onPlay,
+                    modifier =
+                        Modifier.weight(1f),
+                    enabled =
+                        !commandRunning,
+                    colors =
+                        ButtonDefaults
+                            .buttonColors(
+                                containerColor =
+                                    Success
+                            ),
+                    shape =
+                        RoundedCornerShape(14.dp)
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.PlayArrow,
+                        contentDescription =
+                            null
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.size(4.dp)
+                    )
+
+                    Text("Play")
+                }
+
+                Button(
+                    onClick =
+                        onPause,
+                    modifier =
+                        Modifier.weight(1f),
+                    enabled =
+                        !commandRunning,
+                    colors =
+                        ButtonDefaults
+                            .buttonColors(
+                                containerColor =
+                                    Blue
+                            ),
+                    shape =
+                        RoundedCornerShape(14.dp)
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.Pause,
+                        contentDescription =
+                            null
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.size(4.dp)
+                    )
+
+                    Text("Pausa")
+                }
+
+                Button(
+                    onClick =
+                        onStop,
+                    modifier =
+                        Modifier.weight(1f),
+                    enabled =
+                        !commandRunning,
+                    colors =
+                        ButtonDefaults
+                            .buttonColors(
+                                containerColor =
+                                    ErrorRed
+                            ),
+                    shape =
+                        RoundedCornerShape(14.dp)
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.Stop,
+                        contentDescription =
+                            null
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.size(4.dp)
+                    )
+
+                    Text("Stop")
+                }
+            }
         }
     }
 }
