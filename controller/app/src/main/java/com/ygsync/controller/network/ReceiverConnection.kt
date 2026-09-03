@@ -34,8 +34,13 @@ class ReceiverConnection(
                     3000
                 )
 
-                newSocket.soTimeout = 3000
+                /*
+                 * No usamos un timeout permanente demasiado corto
+                 * para el socket. La conexión debe permanecer abierta.
+                 */
+                newSocket.soTimeout = 0
                 newSocket.keepAlive = true
+                newSocket.tcpNoDelay = true
 
                 socket = newSocket
 
@@ -50,6 +55,11 @@ class ReceiverConnection(
                     )
                 )
 
+                /*
+                 * El servidor de SmartTube acepta la conexión TCP
+                 * directamente. No es obligatorio recibir CONNECTED
+                 * para considerar la conexión establecida.
+                 */
                 true
 
             } catch (_: Exception) {
@@ -92,21 +102,34 @@ class ReceiverConnection(
                     return@withContext null
                 }
 
-                val response =
-                    currentReader.readLine()
+                /*
+                 * SmartTube puede tener respuestas pendientes.
+                 *
+                 * Buscamos PONG y solamente consideramos perdida
+                 * la conexión si realmente se cierra el socket.
+                 */
+                while (true) {
 
-                val endTime =
-                    System.currentTimeMillis()
+                    val response =
+                        currentReader.readLine()
 
-                if (response == "PONG") {
+                    if (response == null) {
 
-                    endTime - startTime
+                        disconnect()
+                        return@withContext null
+                    }
 
-                } else {
+                    if (response == "PONG") {
 
-                    disconnect()
+                        return@withContext (
+                            System.currentTimeMillis() - startTime
+                        )
+                    }
 
-                    null
+                    /*
+                     * Respuesta válida pero correspondiente a otro
+                     * comando. No cerramos la conexión.
+                     */
                 }
 
             } catch (_: Exception) {
@@ -141,7 +164,9 @@ class ReceiverConnection(
                 currentWriter.println(message)
 
                 if (currentWriter.checkError()) {
+
                     disconnect()
+
                     return@withContext false
                 }
 
@@ -157,7 +182,8 @@ class ReceiverConnection(
 
     fun isConnected(): Boolean {
 
-        val currentSocket = socket
+        val currentSocket =
+            socket
 
         return currentSocket != null &&
             currentSocket.isConnected &&
