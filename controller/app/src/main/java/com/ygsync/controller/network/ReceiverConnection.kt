@@ -34,10 +34,6 @@ class ReceiverConnection(
                     3000
                 )
 
-                /*
-                 * No usamos un timeout permanente demasiado corto
-                 * para el socket. La conexión debe permanecer abierta.
-                 */
                 newSocket.soTimeout = 0
                 newSocket.keepAlive = true
                 newSocket.tcpNoDelay = true
@@ -55,11 +51,6 @@ class ReceiverConnection(
                     )
                 )
 
-                /*
-                 * El servidor de SmartTube acepta la conexión TCP
-                 * directamente. No es obligatorio recibir CONNECTED
-                 * para considerar la conexión establecida.
-                 */
                 true
 
             } catch (_: Exception) {
@@ -74,13 +65,21 @@ class ReceiverConnection(
         withContext(Dispatchers.IO) {
 
             val currentSocket =
-                socket ?: return@withContext null
+                socket
 
             val currentWriter =
-                writer ?: return@withContext null
+                writer
 
             val currentReader =
-                reader ?: return@withContext null
+                reader
+
+            if (
+                currentSocket == null ||
+                currentWriter == null ||
+                currentReader == null
+            ) {
+                return@withContext null
+            }
 
             try {
 
@@ -102,13 +101,9 @@ class ReceiverConnection(
                     return@withContext null
                 }
 
-                /*
-                 * SmartTube puede tener respuestas pendientes.
-                 *
-                 * Buscamos PONG y solamente consideramos perdida
-                 * la conexión si realmente se cierra el socket.
-                 */
-                while (true) {
+                var pongReceived = false
+
+                while (!pongReceived) {
 
                     val response =
                         currentReader.readLine()
@@ -116,21 +111,16 @@ class ReceiverConnection(
                     if (response == null) {
 
                         disconnect()
+
                         return@withContext null
                     }
 
                     if (response == "PONG") {
-
-                        return@withContext (
-                            System.currentTimeMillis() - startTime
-                        )
+                        pongReceived = true
                     }
-
-                    /*
-                     * Respuesta válida pero correspondiente a otro
-                     * comando. No cerramos la conexión.
-                     */
                 }
+
+                System.currentTimeMillis() - startTime
 
             } catch (_: Exception) {
 
@@ -146,10 +136,17 @@ class ReceiverConnection(
         withContext(Dispatchers.IO) {
 
             val currentSocket =
-                socket ?: return@withContext false
+                socket
 
             val currentWriter =
-                writer ?: return@withContext false
+                writer
+
+            if (
+                currentSocket == null ||
+                currentWriter == null
+            ) {
+                return@withContext false
+            }
 
             try {
 
