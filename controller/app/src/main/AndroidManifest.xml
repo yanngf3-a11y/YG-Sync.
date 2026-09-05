@@ -13,6 +13,7 @@
         android:icon="@drawable/yg_sync_control"
         android:roundIcon="@drawable/yg_sync_control"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.YGSync">
 
         <activity
