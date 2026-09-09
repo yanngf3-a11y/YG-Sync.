@@ -1,7 +1,6 @@
 package com.ygsync.controller.network
 
 import android.content.Context
-import android.net.wifi.WifiManager
 import com.ygsync.controller.data.Receiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -32,7 +31,7 @@ class ReceiverDiscovery(
             5000L
 
         private const val SOCKET_TIMEOUT_MS =
-            500L
+            500
 
         private const val RECEIVE_BUFFER_SIZE =
             4096
@@ -107,8 +106,8 @@ class ReceiverDiscovery(
             }
 
             /*
-             * Primero enviamos a todos los broadcasts
-             * reales de las interfaces de red.
+             * Enviar a todos los broadcasts reales
+             * encontrados en las interfaces de red.
              */
             for (
                 address in broadcastAddresses
@@ -122,10 +121,7 @@ class ReceiverDiscovery(
             }
 
             /*
-             * También hacemos una prueba global.
-             *
-             * Algunas redes permiten responder únicamente
-             * a 255.255.255.255 y no al broadcast calculado.
+             * Prueba adicional con broadcast global.
              */
             try {
 
@@ -227,9 +223,7 @@ class ReceiverDiscovery(
                     }
 
                     val parts =
-                        message.split(
-                            "|"
-                        )
+                        message.split("|")
 
                     if (parts.size < 3) {
 
@@ -268,8 +262,8 @@ class ReceiverDiscovery(
                     }
 
                     /*
-                     * La IP correcta para conectar por TCP
-                     * es la IP desde la cual respondió el Receiver.
+                     * La IP correcta para TCP es la IP
+                     * desde la cual respondió el Receiver.
                      */
                     val address =
                         remoteAddress
@@ -324,8 +318,8 @@ class ReceiverDiscovery(
                 ) {
 
                     /*
-                     * Es normal. El timeout solamente permite
-                     * comprobar repetidamente si llegó otra respuesta.
+                     * Normal: permite seguir esperando
+                     * más respuestas.
                      */
 
                 } catch (exception: Exception) {
@@ -398,7 +392,7 @@ class ReceiverDiscovery(
             log(
                 "YG Sync: UDP enviado correctamente → "
                         + address.hostAddress
-        )
+            )
 
         } catch (exception: Exception) {
 
@@ -459,9 +453,6 @@ class ReceiverDiscovery(
                         val address =
                             interfaceAddress.address
 
-                        /*
-                         * Solo nos interesan interfaces IPv4.
-                         */
                         if (
                             address !is Inet4Address
                         ) {
@@ -510,13 +501,6 @@ class ReceiverDiscovery(
             )
         }
 
-        /*
-         * Fallback importante.
-         *
-         * Si Android no devuelve correctamente la máscara
-         * o broadcast de la interfaz Wi-Fi, todavía intentamos
-         * el broadcast global.
-         */
         if (addresses.isEmpty()) {
 
             log(
