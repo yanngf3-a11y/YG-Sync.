@@ -1,6 +1,7 @@
 package com.ygsync.controller.network
 
 import android.content.Context
+import android.net.wifi.WifiManager
 import com.ygsync.controller.data.Receiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -8,19 +9,33 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
 import java.net.InetAddress
-import java.net.InetSocketAddress
+import java.net.NetworkInterface
+import java.net.SocketTimeoutException
 
 class ReceiverDiscovery(
     private val context: Context
 ) {
 
     companion object {
-        const val DISCOVERY_PORT = 8766
-        const val DISCOVERY_REQUEST = "YG_SYNC_DISCOVER"
-        const val DISCOVERY_RESPONSE = "YG_SYNC_RECEIVER"
 
-        private const val DISCOVERY_TIME_MS = 4000L
+        const val DISCOVERY_PORT = 8766
+
+        const val DISCOVERY_REQUEST =
+            "YG_SYNC_DISCOVER"
+
+        const val DISCOVERY_RESPONSE =
+            "YG_SYNC_RECEIVER"
+
+        private const val DISCOVERY_TIME_MS =
+            5000L
+
+        private const val SOCKET_TIMEOUT_MS =
+            500L
+
+        private const val RECEIVE_BUFFER_SIZE =
+            4096
     }
 
     fun discoverReceivers(): Flow<Receiver> =
@@ -45,21 +60,28 @@ class ReceiverDiscovery(
 
         try {
 
+            log(
+                "YG Sync: iniciando descubrimiento UDP"
+            )
+
+            log(
+                "YG Sync: puerto UDP=$DISCOVERY_PORT"
+            )
+
             socket =
-                DatagramSocket(null).apply {
+                DatagramSocket().apply {
 
                     reuseAddress = true
 
                     broadcast = true
 
-                    bind(
-                        InetSocketAddress(
-                            0
-                        )
-                    )
-
-                    soTimeout = 500
+                    soTimeout =
+                        SOCKET_TIMEOUT_MS
                 }
+
+            log(
+                "YG Sync: socket UDP creado correctamente"
+            )
 
             val requestBytes =
                 DISCOVERY_REQUEST.toByteArray(
@@ -69,34 +91,87 @@ class ReceiverDiscovery(
             val broadcastAddresses =
                 getBroadcastAddresses()
 
-            for (address in broadcastAddresses) {
+            log(
+                "YG Sync: broadcasts encontrados="
+                        + broadcastAddresses.size
+            )
 
-                try {
+            for (
+                address in broadcastAddresses
+            ) {
 
-                    val packet =
-                        DatagramPacket(
-                            requestBytes,
-                            requestBytes.size,
-                            address,
-                            DISCOVERY_PORT
-                        )
-
-                    socket.send(packet)
-
-                } catch (_: Exception) {
-                }
+                log(
+                    "YG Sync: broadcast disponible="
+                            + address.hostAddress
+                )
             }
+
+            /*
+             * Primero enviamos a todos los broadcasts
+             * reales de las interfaces de red.
+             */
+            for (
+                address in broadcastAddresses
+            ) {
+
+                sendDiscoveryRequest(
+                    socket = socket,
+                    address = address,
+                    requestBytes = requestBytes
+                )
+            }
+
+            /*
+             * También hacemos una prueba global.
+             *
+             * Algunas redes permiten responder únicamente
+             * a 255.255.255.255 y no al broadcast calculado.
+             */
+            try {
+
+                val globalBroadcast =
+                    InetAddress.getByName(
+                        "255.255.255.255"
+                    )
+
+                if (
+                    broadcastAddresses.none {
+                        it.hostAddress ==
+                                globalBroadcast.hostAddress
+                    }
+                ) {
+
+                    sendDiscoveryRequest(
+                        socket = socket,
+                        address = globalBroadcast,
+                        requestBytes = requestBytes
+                    )
+                }
+
+            } catch (exception: Exception) {
+
+                log(
+                    "YG Sync: error con broadcast global: "
+                            + safeMessage(exception)
+                )
+            }
+
+            log(
+                "YG Sync: solicitudes UDP enviadas"
+            )
 
             val startTime =
                 System.currentTimeMillis()
 
             val buffer =
-                ByteArray(2048)
+                ByteArray(
+                    RECEIVE_BUFFER_SIZE
+                )
 
             while (
                 System.currentTimeMillis() -
-                    startTime <
-                    DISCOVERY_TIME_MS
+                        startTime <
+                        DISCOVERY_TIME_MS
             ) {
 
                 try {
@@ -109,6 +184,14 @@ class ReceiverDiscovery(
 
                     socket.receive(packet)
 
+                    val remoteAddress =
+                        packet.address
+                            ?.hostAddress
+                            ?: "desconocido"
+
+                    val remotePort =
+                        packet.port
+
                     val message =
                         String(
                             packet.data,
@@ -117,11 +200,29 @@ class ReceiverDiscovery(
                             Charsets.UTF_8
                         ).trim()
 
+                    log(
+                        "YG Sync: UDP recibido desde "
+                                + remoteAddress
+                                + ":"
+                                + remotePort
+                    )
+
+                    log(
+                        "YG Sync: respuesta=\""
+                                + message
+                                + "\""
+                    )
+
                     if (
                         !message.startsWith(
                             "$DISCOVERY_RESPONSE|"
                         )
                     ) {
+
+                        log(
+                            "YG Sync: respuesta UDP ignorada"
+                        )
+
                         continue
                     }
 
@@ -131,51 +232,126 @@ class ReceiverDiscovery(
                         )
 
                     if (parts.size < 3) {
+
+                        log(
+                            "YG Sync: respuesta inválida, "
+                                    + "faltan campos"
+                        )
+
                         continue
                     }
 
                     val name =
-                        parts[1].ifBlank {
-                            "YG Sync Receiver"
-                        }
+                        parts[1]
+                            .trim()
+                            .ifBlank {
+                                "YG Sync Receiver"
+                            }
 
                     val port =
-                        parts[2].toIntOrNull()
-                            ?: continue
+                        parts[2]
+                            .trim()
+                            .toIntOrNull()
 
-                    if (port <= 0) {
+                    if (
+                        port == null ||
+                        port <= 0 ||
+                        port > 65535
+                    ) {
+
+                        log(
+                            "YG Sync: puerto inválido="
+                                    + parts[2]
+                        )
+
                         continue
                     }
 
+                    /*
+                     * La IP correcta para conectar por TCP
+                     * es la IP desde la cual respondió el Receiver.
+                     */
                     val address =
-                        packet.address.hostAddress
-                            ?: continue
+                        remoteAddress
 
                     val id =
                         "$address:$port"
 
-                    if (!found.containsKey(id)) {
+                    if (
+                        !found.containsKey(id)
+                    ) {
 
-                        found[id] =
+                        val receiver =
                             Receiver(
                                 id = id,
                                 name = name,
                                 address = address,
                                 port = port
                             )
+
+                        found[id] =
+                            receiver
+
+                        log(
+                            "YG Sync: RECEIVER ENCONTRADO"
+                        )
+
+                        log(
+                            "YG Sync: nombre="
+                                    + name
+                        )
+
+                        log(
+                            "YG Sync: dirección="
+                                    + address
+                        )
+
+                        log(
+                            "YG Sync: puerto="
+                                    + port
+                        )
+
+                    } else {
+
+                        log(
+                            "YG Sync: receiver duplicado="
+                                    + id
+                        )
                     }
 
-                } catch (_: java.net.SocketTimeoutException) {
+                } catch (
+                    _: SocketTimeoutException
+                ) {
 
-                    // Seguir esperando respuestas.
-                } catch (_: Exception) {
+                    /*
+                     * Es normal. El timeout solamente permite
+                     * comprobar repetidamente si llegó otra respuesta.
+                     */
+
+                } catch (exception: Exception) {
+
+                    log(
+                        "YG Sync: error recibiendo UDP: "
+                                + safeMessage(exception)
+                    )
                 }
             }
 
-        } catch (_: Exception) {
+            log(
+                "YG Sync: descubrimiento finalizado"
+            )
 
-            // El descubrimiento automático
-            // no debe cerrar el Controller.
+            log(
+                "YG Sync: receivers encontrados="
+                        + found.size
+            )
+
+        } catch (exception: Exception) {
+
+            log(
+                "YG Sync: ERROR GENERAL UDP: "
+                        + safeMessage(exception)
+            )
 
         } finally {
 
@@ -183,9 +359,56 @@ class ReceiverDiscovery(
                 socket?.close()
             } catch (_: Exception) {
             }
+
+            log(
+                "YG Sync: socket UDP cerrado"
+            )
         }
 
         return found.values.toList()
+    }
+
+    private fun sendDiscoveryRequest(
+        socket: DatagramSocket,
+        address: InetAddress,
+        requestBytes: ByteArray
+    ) {
+
+        try {
+
+            val packet =
+                DatagramPacket(
+                    requestBytes,
+                    requestBytes.size,
+                    address,
+                    DISCOVERY_PORT
+                )
+
+            log(
+                "YG Sync: enviando UDP "
+                        + DISCOVERY_REQUEST
+                        + " → "
+                        + address.hostAddress
+                        + ":"
+                        + DISCOVERY_PORT
+            )
+
+            socket.send(packet)
+
+            log(
+                "YG Sync: UDP enviado correctamente → "
+                        + address.hostAddress
+        )
+
+        } catch (exception: Exception) {
+
+            log(
+                "YG Sync: ERROR enviando UDP → "
+                        + address.hostAddress
+                        + ": "
+                        + safeMessage(exception)
+            )
+        }
     }
 
     private fun getBroadcastAddresses():
@@ -197,40 +420,109 @@ class ReceiverDiscovery(
         try {
 
             val interfaces =
-                java.net.NetworkInterface
+                NetworkInterface
                     .getNetworkInterfaces()
 
-            while (interfaces.hasMoreElements()) {
+            while (
+                interfaces.hasMoreElements()
+            ) {
 
                 val networkInterface =
                     interfaces.nextElement()
 
-                if (
-                    networkInterface.isLoopback ||
-                    !networkInterface.isUp
-                ) {
+                try {
+
+                    if (
+                        networkInterface.isLoopback ||
+                        !networkInterface.isUp
+                    ) {
+                        continue
+                    }
+
+                } catch (_: Exception) {
+
                     continue
                 }
+
+                log(
+                    "YG Sync: interfaz encontrada="
+                            + networkInterface.name
+                )
 
                 for (
                     interfaceAddress
                     in networkInterface.interfaceAddresses
                 ) {
 
-                    val broadcast =
-                        interfaceAddress.broadcast
-                            ?: continue
+                    try {
 
-                    addresses.add(
-                        broadcast
-                    )
+                        val address =
+                            interfaceAddress.address
+
+                        /*
+                         * Solo nos interesan interfaces IPv4.
+                         */
+                        if (
+                            address !is Inet4Address
+                        ) {
+                            continue
+                        }
+
+                        log(
+                            "YG Sync: IPv4="
+                                    + address.hostAddress
+                        )
+
+                        val broadcast =
+                            interfaceAddress.broadcast
+
+                        if (
+                            broadcast != null
+                        ) {
+
+                            log(
+                                "YG Sync: broadcast="
+                                        + broadcast.hostAddress
+                            )
+
+                            addresses.add(
+                                broadcast
+                            )
+                        }
+
+                    } catch (exception: Exception) {
+
+                        log(
+                            "YG Sync: error leyendo "
+                                    + "dirección de interfaz: "
+                                    + safeMessage(exception)
+                        )
+                    }
                 }
             }
 
-        } catch (_: Exception) {
+        } catch (exception: Exception) {
+
+            log(
+                "YG Sync: error obteniendo "
+                        + "interfaces de red: "
+                        + safeMessage(exception)
+            )
         }
 
+        /*
+         * Fallback importante.
+         *
+         * Si Android no devuelve correctamente la máscara
+         * o broadcast de la interfaz Wi-Fi, todavía intentamos
+         * el broadcast global.
+         */
         if (addresses.isEmpty()) {
+
+            log(
+                "YG Sync: no se encontraron broadcasts "
+                        + "de interfaces"
+            )
 
             try {
 
@@ -240,12 +532,60 @@ class ReceiverDiscovery(
                     )
                 )
 
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
+
+                log(
+                    "YG Sync: error creando "
+                            + "broadcast global: "
+                            + safeMessage(exception)
+                )
             }
         }
 
-        return addresses.distinctBy {
-            it.hostAddress
+        val unique =
+            addresses.distinctBy {
+                it.hostAddress
+            }
+
+        log(
+            "YG Sync: broadcasts únicos="
+                    + unique.size
+        )
+
+        return unique
+    }
+
+    private fun log(
+        message: String
+    ) {
+
+        android.util.Log.d(
+            "YG_SYNC_DISCOVERY",
+            message
+        )
+    }
+
+    private fun safeMessage(
+        exception: Exception?
+    ): String {
+
+        if (exception == null) {
+            return "desconocido"
         }
+
+        val message =
+            exception.message
+
+        if (
+            message == null ||
+            message.trim().isEmpty()
+        ) {
+
+            return exception
+                .javaClass
+                .simpleName
+        }
+
+        return message
     }
 }
