@@ -4,7 +4,6 @@ import android.content.Context
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.schabi.newpipe.extractor.downloader.Downloader
-import org.schabi.newpipe.extractor.downloader.Request as NewPipeRequest
 import org.schabi.newpipe.extractor.downloader.Response
 import java.util.concurrent.TimeUnit
 
@@ -23,31 +22,42 @@ class YgYouTubeDownloader(
     }
 
     override fun execute(
-        request: NewPipeRequest
+        request: org.schabi.newpipe.extractor.downloader.Request
     ): Response {
 
         val builder = Request.Builder()
             .url(request.url())
 
-        request.httpMethod()
-            ?.let { builder.method(it, null) }
-
-        request.headers()
-            .forEach { (name, values) ->
-                values.forEach { value ->
-                    builder.addHeader(name, value)
-                }
+        request.headers().forEach { (name, values) ->
+            values.forEach { value ->
+                builder.addHeader(name, value)
             }
+        }
 
-        val response = client.newCall(builder.build()).execute()
+        val method = request.httpMethod()
 
-        val responseBody = response.body?.string() ?: ""
+        if (method.equals("POST", ignoreCase = true)) {
+            builder.post(
+                okhttp3.RequestBody.create(
+                    null,
+                    request.dataToSend() ?: ByteArray(0)
+                )
+            )
+        } else {
+            builder.get()
+        }
+
+        val response = client
+            .newCall(builder.build())
+            .execute()
+
+        val body = response.body?.string() ?: ""
 
         return Response(
             response.code,
             response.message,
             response.headers.toMultimap(),
-            responseBody,
+            body,
             response.request.url.toString()
         )
     }
