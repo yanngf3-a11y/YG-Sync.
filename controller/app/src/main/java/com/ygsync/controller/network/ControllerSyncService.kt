@@ -8,114 +8,59 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.ygsync.controller.R
 import com.ygsync.controller.data.Receiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 class ControllerSyncService : Service() {
 
     companion object {
-
-        private const val TAG =
-            "YG_SYNC_SERVICE"
-
-        private const val CHANNEL_ID =
-            "ygsync_controller"
-
-        private const val CHANNEL_NAME =
-            "YG Sync Controller"
-
-        private const val NOTIFICATION_ID =
-            8765
-
-        private const val PING_INTERVAL_MS =
-            5000L
-
-        private const val RECONNECT_DELAY_MS =
-            3000L
+        const val ACTION_START = "com.ygsync.controller.action.START"
+        private const val CHANNEL_ID = "ygsync_controller"
+        private const val NOTIFICATION_ID = 1001
 
         @Volatile
-        private var instance:
-                ControllerSyncService? = null
+        private var instance: ControllerSyncService? = null
 
-        fun getInstance():
-                ControllerSyncService? {
-            return instance
-        }
+        fun getInstance(): ControllerSyncService? = instance
     }
 
-    private val serviceScope =
-        CoroutineScope(
-            SupervisorJob() +
-                    Dispatchers.IO
-        )
-
-    private var maintenanceJob:
-            Job? = null
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(
+        Dispatchers.Main.immediate + serviceJob
+    )
 
     private val connections =
-        ConcurrentHashMap<
-                String,
-                ReceiverConnection
-                >()
+        ConcurrentHashMap<String, ReceiverConnection>()
 
-    private val registeredReceivers =
-        ConcurrentHashMap<
-                String,
-                Receiver
-                >()
-
-    private val _receivers =
-        MutableStateFlow<
-                List<Receiver>
-                >(emptyList())
-
-    val receivers:
-            StateFlow<List<Receiver>> =
-        _receivers.asStateFlow()
+    private val _receiverList = MutableStateFlow<List<Receiver>>(emptyList())
+    val receiverList: StateFlow<List<Receiver>> = _receiverList.asStateFlow()
 
     private val _connectionStates =
-        MutableStateFlow<
-                Map<String, Boolean>
-                >(emptyMap())
-
-    val connectionStates:
-            StateFlow<Map<String, Boolean>> =
+        MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val connectionStates: StateFlow<Map<String, Boolean>> =
         _connectionStates.asStateFlow()
 
     private val _latencies =
-        MutableStateFlow<
-                Map<String, Long>
-                >(emptyMap())
-
-    val latencies:
-            StateFlow<Map<String, Long>> =
+        MutableStateFlow<Map<String, Long>>(emptyMap())
+    val latencies: StateFlow<Map<String, Long>> =
         _latencies.asStateFlow()
 
     private val _diagnostic =
-        MutableStateFlow("YG Sync detenido")
-
-    val diagnostic:
-            StateFlow<String> =
+        MutableStateFlow("YG SYNC — Servicio iniciado")
+    val diagnostic: StateFlow<String> =
         _diagnostic.asStateFlow()
-
-    private val _started =
-        MutableStateFlow(false)
-
-    val started:
-            StateFlow<Boolean> =
-        _started.asStateFlow()
 
     override fun onCreate() {
         super.onCreate()
@@ -123,24 +68,12 @@ class ControllerSyncService : Service() {
         instance = this
 
         createNotificationChannel()
-
         startForeground(
             NOTIFICATION_ID,
-            createNotification()
+            createNotification("YG Sync Controller activo")
         )
 
-        _started.value = true
-
-        updateDiagnostic(
-            "YG SYNC — SERVICIO ACTIVO"
-        )
-
-        startMaintenanceLoop()
-
-        Log.d(
-            TAG,
-            "Servicio iniciado"
-        )
+        updateDiagnostic("YG SYNC — CONTROLADOR ACTIVO")
     }
 
     override fun onStartCommand(
@@ -149,391 +82,21 @@ class ControllerSyncService : Service() {
         startId: Int
     ): Int {
 
-        Log.d(
-            TAG,
-            "onStartCommand()"
-        )
+        when (intent?.action) {
+            ACTION_START,
+            null -> {
+                updateDiagnostic("YG SYNC — SERVICIO LISTO")
+            }
+        }
 
         return START_STICKY
     }
 
-    fun registerReceiver(
-        receiver: Receiver
-    ) {
-
-        registeredReceivers[
-            receiver.id
-        ] = receiver
-
-        updateReceiverList()
-
-        serviceScope.launch {
-            connectToReceiver(
-                receiver
-            )
-        }
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
     }
 
-    fun registerReceivers(
-        receivers: List<Receiver>
-    ) {
-
-        receivers.forEach {
-            registeredReceivers[
-                it.id
-            ] = it
-        }
-
-        updateReceiverList()
-
-        receivers.forEach {
-            serviceScope.launch {
-                connectToReceiver(it)
-            }
-        }
-    }
-
-    private suspend fun connectToReceiver(
-        receiver: Receiver
-    ) {
-
-        val existing =
-            connections[receiver.id]
-
-        if (
-            existing != null &&
-            existing.isConnected()
-        ) {
-            updateConnectionState(
-                receiver.id,
-                true
-            )
-
-            return
-        }
-
-        updateDiagnostic(
-            "Conectando a ${receiver.name}..."
-        )
-
-        Log.d(
-            TAG,
-            "Conectando a "
-                    + receiver.address
-                    + ":"
-                    + receiver.port
-        )
-
-        val connection =
-            ReceiverConnection(
-                receiver.address,
-                receiver.port
-            )
-
-        val success =
-            try {
-                connection.connect()
-            } catch (e: Exception) {
-                Log.e(
-                    TAG,
-                    "Error conectando a ${receiver.id}",
-                    e
-                )
-                false
-            }
-
-        if (!success) {
-
-            connection.disconnect()
-
-            connections.remove(
-                receiver.id
-            )
-
-            updateConnectionState(
-                receiver.id,
-                false
-            )
-
-            updateDiagnostic(
-                "No se pudo conectar a ${receiver.name}"
-            )
-
-            return
-        }
-
-        connections[
-            receiver.id
-        ] = connection
-
-        val pingStart =
-            System.currentTimeMillis()
-
-        val pingSuccess =
-            try {
-                connection.ping()
-            } catch (e: Exception) {
-                Log.e(
-                    TAG,
-                    "Error en ping inicial",
-                    e
-                )
-                false
-            }
-
-        val latency =
-            System.currentTimeMillis()
-                    - pingStart
-
-        if (!pingSuccess) {
-
-            Log.e(
-                TAG,
-                "Ping falló para ${receiver.name}"
-            )
-
-            connection.disconnect()
-
-            connections.remove(
-                receiver.id
-            )
-
-            updateConnectionState(
-                receiver.id,
-                false
-            )
-
-            updateDiagnostic(
-                "Conexión rechazada por ${receiver.name}"
-            )
-
-            return
-        }
-
-        _latencies.updateValue(
-            receiver.id,
-            latency
-        )
-
-        updateConnectionState(
-            receiver.id,
-            true
-        )
-
-        updateDiagnostic(
-            "Conectado: ${receiver.name}"
-        )
-
-        Log.d(
-            TAG,
-            "Conexión establecida con ${receiver.name}"
-        )
-    }
-
-    fun sendCommand(
-        command: String
-    ): Boolean {
-
-        var successCount =
-            0
-
-        connections.forEach { (id, connection) ->
-
-            if (!connection.isConnected()) {
-                return@forEach
-            }
-
-            try {
-
-                if (connection.send(command)) {
-                    successCount++
-                }
-
-            } catch (e: Exception) {
-
-                Log.e(
-                    TAG,
-                    "Error enviando comando a $id",
-                    e
-                )
-            }
-        }
-
-        return successCount > 0
-    }
-
-    fun sendCommandAsync(
-        command: String,
-        callback: (
-            success: Int,
-            total: Int
-        ) -> Unit
-    ) {
-
-        serviceScope.launch {
-
-            var successCount =
-                0
-
-            var total =
-                0
-
-            connections.forEach { (id, connection) ->
-
-                if (!connection.isConnected()) {
-                    return@forEach
-                }
-
-                total++
-
-                try {
-
-                    if (connection.send(command)) {
-                        successCount++
-                    }
-
-                } catch (e: Exception) {
-
-                    Log.e(
-                        TAG,
-                        "Error enviando a $id",
-                        e
-                    )
-                }
-            }
-
-            launch(
-                Dispatchers.Main
-            ) {
-                callback(
-                    successCount,
-                    total
-                )
-            }
-        }
-    }
-
-    suspend fun loadVideoAndWaitReady(
-        videoId: String
-    ): Boolean {
-
-        val cleanVideoId =
-            videoId.trim()
-
-        if (cleanVideoId.isEmpty()) {
-            return false
-        }
-
-        val activeConnections =
-            connections.values
-                .filter {
-                    it.isConnected()
-                }
-
-        if (activeConnections.isEmpty()) {
-
-            updateDiagnostic(
-                "No hay receptores conectados"
-            )
-
-            return false
-        }
-
-        updateDiagnostic(
-            "Cargando video en ${activeConnections.size} receptor(es)..."
-        )
-
-        val results =
-            activeConnections.map { connection ->
-
-                serviceScope.asyncResult {
-
-                    try {
-                        connection
-                            .loadVideoAndWaitReady(
-                                cleanVideoId
-                            )
-                    } catch (e: Exception) {
-
-                        Log.e(
-                            TAG,
-                            "Error cargando $cleanVideoId",
-                            e
-                        )
-
-                        false
-                    }
-                }
-            }
-
-        val readyCount =
-            results.count {
-                it.await()
-            }
-
-        val success =
-            readyCount ==
-                    activeConnections.size
-
-        if (success) {
-
-            updateDiagnostic(
-                "VIDEO READY — $cleanVideoId"
-            )
-
-        } else {
-
-            updateDiagnostic(
-                "VIDEO READY: $readyCount/"
-                        + activeConnections.size
-            )
-        }
-
-        return success
-    }
-
-    fun getConnection(
-        receiverId: String
-    ): ReceiverConnection? {
-        return connections[
-            receiverId
-        ]
-    }
-
-    fun isReceiverConnected(
-        receiverId: String
-    ): Boolean {
-
-        return connections[
-            receiverId
-        ]?.isConnected() == true
-    }
-
-    fun disconnectReceiver(
-        receiverId: String
-    ) {
-
-        try {
-            connections[
-                receiverId
-            ]?.disconnect()
-        } catch (_: Exception) {
-        }
-
-        connections.remove(
-            receiverId
-        )
-
-        updateConnectionState(
-            receiverId,
-            false
-        )
-    }
-
-    fun stopService() {
-
-        maintenanceJob?.cancel()
-
+    override fun onDestroy() {
         connections.values.forEach {
             try {
                 it.disconnect()
@@ -543,98 +106,404 @@ class ControllerSyncService : Service() {
 
         connections.clear()
 
-        stopSelf()
+        serviceJob.cancel()
+
+        instance = null
+
+        super.onDestroy()
     }
 
-    private fun startMaintenanceLoop() {
+    /**
+     * Registra una pantalla y crea su conexión persistente.
+     */
+    fun registerReceiver(receiver: Receiver) {
 
-        maintenanceJob?.cancel()
+        val existing = _receiverList.value
+            .firstOrNull { it.id == receiver.id }
 
-        maintenanceJob =
-            serviceScope.launch {
-
-                while (isActive) {
-
-                    delay(
-                        PING_INTERVAL_MS
-                    )
-
-                    maintainConnections()
+        if (existing == null) {
+            _receiverList.value =
+                _receiverList.value + receiver
+        } else {
+            _receiverList.value =
+                _receiverList.value.map {
+                    if (it.id == receiver.id) receiver else it
                 }
-            }
-    }
+        }
 
-    private suspend fun maintainConnections() {
+        if (!connections.containsKey(receiver.id)) {
 
-        registeredReceivers
-            .values
-            .forEach { receiver ->
-
-                val connection =
-                    connections[
-                        receiver.id
-                    ]
-
-                if (
-                    connection == null ||
-                    !connection.isConnected()
-                ) {
-
-                    connectToReceiver(
-                        receiver
-                    )
-
-                    return@forEach
-                }
-
-                val start =
-                    System.currentTimeMillis()
-
-                val success =
-                    try {
-                        connection.ping()
-                    } catch (e: Exception) {
-                        false
-                    }
-
-                val latency =
-                    System.currentTimeMillis()
-                            - start
-
-                if (success) {
-
-                    _latencies.updateValue(
-                        receiver.id,
-                        latency
-                    )
-
+            val connection = ReceiverConnection(
+                receiver = receiver,
+                onConnected = {
                     updateConnectionState(
                         receiver.id,
                         true
                     )
 
-                } else {
-
-                    Log.d(
-                        TAG,
-                        "Ping falló: ${receiver.name}"
+                    updateDiagnostic(
+                        "YG SYNC — CONECTADO: ${receiver.name}"
                     )
-
-                    try {
-                        connection.disconnect()
-                    } catch (_: Exception) {
-                    }
-
-                    connections.remove(
-                        receiver.id
-                    )
-
+                },
+                onDisconnected = {
                     updateConnectionState(
                         receiver.id,
                         false
                     )
+
+                    updateDiagnostic(
+                        "YG SYNC — DESCONECTADO: ${receiver.name}"
+                    )
+                },
+                onLatency = { latency ->
+                    updateLatency(
+                        receiver.id,
+                        latency
+                    )
+                },
+                onDiagnostic = { message ->
+                    updateDiagnostic(message)
                 }
+            )
+
+            connections[receiver.id] = connection
+
+            connectReceiver(receiver.id)
+        }
+    }
+
+    /**
+     * Conecta una pantalla sin bloquear la interfaz.
+     */
+    private fun connectReceiver(receiverId: String) {
+
+        serviceScope.launch(Dispatchers.IO) {
+
+            val connection = connections[receiverId]
+                ?: return@launch
+
+            try {
+
+                updateDiagnostic(
+                    "YG SYNC — CONECTANDO: $receiverId"
+                )
+
+                connection.connect()
+
+            } catch (e: Exception) {
+
+                updateConnectionState(
+                    receiverId,
+                    false
+                )
+
+                updateDiagnostic(
+                    "YG SYNC — ERROR DE CONEXIÓN: ${e.message ?: "desconocido"}"
+                )
             }
+        }
+    }
+
+    /**
+     * Envía un comando a una pantalla.
+     */
+    fun sendCommand(
+        receiverId: String,
+        command: String
+    ): Boolean {
+
+        val connection =
+            connections[receiverId]
+                ?: return false
+
+        return try {
+
+            connection.send(command)
+
+            true
+
+        } catch (e: Exception) {
+
+            updateDiagnostic(
+                "YG SYNC — ERROR ENVIANDO A $receiverId: ${e.message}"
+            )
+
+            false
+        }
+    }
+
+    /**
+     * Envía un comando a todas las pantallas conectadas.
+     */
+    fun sendCommandAsync(
+        command: String,
+        callback: (Boolean, Int) -> Unit
+    ) {
+
+        serviceScope.launch {
+
+            val receivers =
+                _receiverList.value.toList()
+
+            if (receivers.isEmpty()) {
+
+                callback(false, 0)
+
+                updateDiagnostic(
+                    "YG SYNC — NO HAY PANTALLAS"
+                )
+
+                return@launch
+            }
+
+            val results =
+                withContext(Dispatchers.IO) {
+
+                    receivers.map { receiver ->
+
+                        async {
+
+                            val connection =
+                                connections[receiver.id]
+
+                            if (
+                                connection == null ||
+                                !connection.isConnected()
+                            ) {
+                                false
+                            } else {
+                                try {
+                                    connection.send(command)
+                                    true
+                                } catch (_: Exception) {
+                                    false
+                                }
+                            }
+                        }
+
+                    }.awaitAll()
+                }
+
+            val successful =
+                results.count { it }
+
+            callback(
+                successful == receivers.size,
+                successful
+            )
+
+            updateDiagnostic(
+                "YG SYNC — COMANDO ENVIADO: $successful/${receivers.size}"
+            )
+        }
+    }
+
+    /**
+     * LOAD VIDEO:
+     *
+     * Envía OPEN a todas las pantallas al mismo tiempo
+     * y espera a que cada receptor confirme READY.
+     */
+    suspend fun loadVideoAndWaitReady(
+        videoId: String
+    ): Boolean {
+
+        val cleanVideoId =
+            videoId.trim()
+
+        if (cleanVideoId.isEmpty()) {
+
+            updateDiagnostic(
+                "YG SYNC — VIDEO ID VACÍO"
+            )
+
+            return false
+        }
+
+        val receivers =
+            _receiverList.value.toList()
+
+        if (receivers.isEmpty()) {
+
+            updateDiagnostic(
+                "YG SYNC — NO HAY PANTALLAS CONECTADAS"
+            )
+
+            return false
+        }
+
+        updateDiagnostic(
+            "YG SYNC — CARGANDO VIDEO: $cleanVideoId"
+        )
+
+        val results =
+            withContext(Dispatchers.IO) {
+
+                receivers.map { receiver ->
+
+                    async {
+
+                        val connection =
+                            connections[receiver.id]
+
+                        if (
+                            connection == null ||
+                            !connection.isConnected()
+                        ) {
+                            false
+                        } else {
+                            try {
+
+                                connection
+                                    .loadVideoAndWaitReady(
+                                        cleanVideoId
+                                    )
+
+                            } catch (e: Exception) {
+
+                                updateDiagnostic(
+                                    "YG SYNC — ERROR ${receiver.name}: ${e.message}"
+                                )
+
+                                false
+                            }
+                        }
+                    }
+
+                }.awaitAll()
+            }
+
+        val readyCount =
+            results.count { it }
+
+        val allReady =
+            readyCount == receivers.size
+
+        if (allReady) {
+
+            updateDiagnostic(
+                "YG SYNC — READY: $readyCount/${receivers.size}"
+            )
+
+        } else {
+
+            updateDiagnostic(
+                "YG SYNC — READY INCOMPLETO: $readyCount/${receivers.size}"
+            )
+        }
+
+        return allReady
+    }
+
+    /**
+     * Envía PLAY simultáneamente.
+     */
+    fun playAll() {
+
+        sendCommandAsync(
+            command = "PLAY"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — PLAY ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Envía PAUSE simultáneamente.
+     */
+    fun pauseAll() {
+
+        sendCommandAsync(
+            command = "PAUSE"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — PAUSE ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Envía STOP simultáneamente.
+     */
+    fun stopAll() {
+
+        sendCommandAsync(
+            command = "STOP"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — STOP ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Solicita estado a todas las pantallas.
+     */
+    fun getStatusAll() {
+
+        sendCommandAsync(
+            command = "GET_STATUS"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — STATUS SOLICITADO: $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Desconecta una pantalla.
+     */
+    fun disconnectReceiver(
+        receiverId: String
+    ) {
+
+        try {
+            connections[receiverId]?.disconnect()
+        } catch (_: Exception) {
+        }
+
+        connections.remove(receiverId)
+
+        _receiverList.value =
+            _receiverList.value.filter {
+                it.id != receiverId
+            }
+
+        _connectionStates.value =
+            _connectionStates.value - receiverId
+
+        _latencies.value =
+            _latencies.value - receiverId
+
+        updateDiagnostic(
+            "YG SYNC — PANTALLA ELIMINADA: $receiverId"
+        )
+    }
+
+    /**
+     * Devuelve una conexión concreta.
+     */
+    fun getConnection(
+        receiverId: String
+    ): ReceiverConnection? {
+        return connections[receiverId]
+    }
+
+    /**
+     * Comprueba si una pantalla está conectada.
+     */
+    fun isConnected(
+        receiverId: String
+    ): Boolean {
+
+        return connections[receiverId]
+            ?.isConnected()
+            ?: false
     }
 
     private fun updateConnectionState(
@@ -642,91 +511,83 @@ class ControllerSyncService : Service() {
         connected: Boolean
     ) {
 
-        _connectionStates.update {
-            it.toMutableMap().apply {
-                this[
-                    receiverId
-                ] = connected
+        _connectionStates.value =
+            _connectionStates.value.toMutableMap().apply {
+                this[receiverId] = connected
             }
-        }
 
-        updateReceiverList()
+        _receiverList.value =
+            _receiverList.value.map {
+
+                if (it.id == receiverId) {
+                    it.copy(
+                        connected = connected
+                    )
+                } else {
+                    it
+                }
+            }
     }
 
-    private fun updateReceiverList() {
+    private fun updateLatency(
+        receiverId: String,
+        latency: Long
+    ) {
 
-        val updated =
-            registeredReceivers
-                .values
-                .map { receiver ->
+        _latencies.value =
+            _latencies.value.toMutableMap().apply {
+                this[receiverId] = latency
+            }
 
-                    receiver.copy(
-                        connected =
-                            connections[
-                                receiver.id
-                            ]?.isConnected() == true,
+        _receiverList.value =
+            _receiverList.value.map {
 
-                        latency =
-                            _latencies.value[
-                                receiver.id
-                            ] ?: 0L
+                if (it.id == receiverId) {
+                    it.copy(
+                        latency = latency
                     )
+                } else {
+                    it
                 }
-                .sortedBy {
-                    it.name
-                }
-
-        _receivers.value =
-            updated
+            }
     }
 
     private fun updateDiagnostic(
         message: String
     ) {
 
-        _diagnostic.value =
-            message
-
-        Log.d(
-            TAG,
-            message
-        )
+        _diagnostic.value = message
     }
 
     private fun createNotificationChannel() {
 
-        if (
-            Build.VERSION.SDK_INT <
-            Build.VERSION_CODES.O
-        ) {
-            return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
+            val manager =
+                getSystemService(
+                    Context.NOTIFICATION_SERVICE
+                ) as NotificationManager
+
+            val channel =
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "YG Sync Controller",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+
+                    description =
+                        "Conexión permanente con las pantallas YG Sync"
+
+                    setShowBadge(false)
+                }
+
+            manager.createNotificationChannel(channel)
         }
-
-        val manager =
-            getSystemService(
-                Context.NOTIFICATION_SERVICE
-            ) as NotificationManager
-
-        val channel =
-            NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager
-                    .IMPORTANCE_LOW
-            )
-
-        channel.description =
-            "Servicio de sincronización YG Sync"
-
-        channel.setShowBadge(false)
-
-        manager.createNotificationChannel(
-            channel
-        )
     }
 
-    private fun createNotification():
-            Notification {
+    private fun createNotification(
+        text: String
+    ): Notification {
 
         return NotificationCompat
             .Builder(
@@ -736,71 +597,14 @@ class ControllerSyncService : Service() {
             .setContentTitle(
                 "YG Sync Controller"
             )
-            .setContentText(
-                "Controlando receptores"
-            )
+            .setContentText(text)
             .setSmallIcon(
-                android.R.drawable.ic_media_play
+                R.drawable.yg_sync_control
             )
             .setOngoing(true)
             .setCategory(
                 NotificationCompat.CATEGORY_SERVICE
             )
             .build()
-    }
-
-    override fun onDestroy() {
-
-        Log.d(
-            TAG,
-            "onDestroy()"
-        )
-
-        maintenanceJob?.cancel()
-
-        connections.values.forEach {
-            try {
-                it.disconnect()
-            } catch (_: Exception) {
-            }
-        }
-
-        connections.clear()
-
-        _started.value =
-            false
-
-        instance = null
-
-        serviceScope.coroutineContext
-            .cancel()
-
-        super.onDestroy()
-    }
-
-    override fun onBind(
-        intent: Intent?
-    ): IBinder? {
-        return null
-    }
-
-    private fun <T> CoroutineScope.asyncResult(
-        block: suspend () -> T
-    ): kotlinx.coroutines.Deferred<T> {
-        return kotlinx.coroutines.async(
-            Dispatchers.IO
-        ) {
-            block()
-        }
-    }
-
-    private fun <K, V> MutableStateFlow<Map<K, V>>.updateValue(
-        key: K,
-        value: V
-    ) {
-        this.value =
-            this.value.toMutableMap().apply {
-                this[key] = value
-            }
     }
 }
