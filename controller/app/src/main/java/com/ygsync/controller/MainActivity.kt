@@ -4,7 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,7 +42,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,12 +51,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,11 +70,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.ygsync.controller.data.Receiver
 import com.ygsync.controller.network.ControllerSyncService
-import com.ygsync.controller.network.ReceiverDiscovery
 import com.ygsync.controller.youtube.YgYouTubeResult
+import com.ygsync.controller.youtube.YgYouTubeUiState
 import com.ygsync.controller.youtube.YgYouTubeViewModel
 import com.ygsync.controller.youtube.YgYouTubeViewModelFactory
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val YgBlue = Color(0xFF1976D2)
 private val YgLightBlue = Color(0xFF42A5F5)
@@ -84,7 +85,7 @@ private val YgMuted = Color(0xFF718096)
 
 class MainActivity : ComponentActivity() {
 
-    private val locationPermissionLauncher =
+    private val notificationPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) {
@@ -95,12 +96,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         if (
-            android.os.Build.VERSION.SDK_INT >= 33 &&
+            Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(
                 Manifest.permission.POST_NOTIFICATIONS
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            locationPermissionLauncher.launch(
+            notificationPermissionLauncher.launch(
                 Manifest.permission.POST_NOTIFICATIONS
             )
         } else {
@@ -146,20 +147,19 @@ private fun YgSyncApp(
         mutableStateOf<YgYouTubeResult?>(null)
     }
 
-    var showReceivers by remember {
-        mutableStateOf(false)
-    }
-
     var receivers by remember {
         mutableStateOf<List<Receiver>>(emptyList())
     }
 
     LaunchedEffect(Unit) {
         while (true) {
-            receivers = ReceiverDiscovery.discover(
-                context = context
-            )
-            delay(5000)
+            val service = ControllerSyncService.getInstance()
+
+            if (service != null) {
+                receivers = service.receiverList.value
+            }
+
+            delay(3000)
         }
     }
 
@@ -167,6 +167,7 @@ private fun YgSyncApp(
         modifier = Modifier.fillMaxSize(),
         color = YgBackground
     ) {
+
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -178,11 +179,12 @@ private fun YgSyncApp(
                     onQueryChange = viewModel::setQuery,
                     onSearch = viewModel::search,
                     onClear = viewModel::clearSearch,
-                    onVideoClick = {
-                        selectedVideo = it
+                    onVideoClick = { video ->
+                        selectedVideo = video
+
                         sendVideoToReceivers(
                             context = context,
-                            video = it
+                            video = video
                         )
                     }
                 )
@@ -192,11 +194,12 @@ private fun YgSyncApp(
                     onQueryChange = viewModel::setQuery,
                     onSearch = viewModel::search,
                     onClear = viewModel::clearSearch,
-                    onVideoClick = {
-                        selectedVideo = it
+                    onVideoClick = { video ->
+                        selectedVideo = video
+
                         sendVideoToReceivers(
                             context = context,
-                            video = it
+                            video = video
                         )
                     }
                 )
@@ -208,9 +211,13 @@ private fun YgSyncApp(
                 3 -> DevicesScreen(
                     receivers = receivers,
                     onRefresh = {
-                        receivers = ReceiverDiscovery.discover(
-                            context = context
-                        )
+                        val service =
+                            ControllerSyncService.getInstance()
+
+                        if (service != null) {
+                            receivers =
+                                service.receiverList.value
+                        }
                     }
                 )
 
@@ -225,20 +232,11 @@ private fun YgSyncApp(
             )
         }
     }
-
-    if (showReceivers) {
-        ReceiverDialog(
-            receivers = receivers,
-            onDismiss = {
-                showReceivers = false
-            }
-        )
-    }
 }
 
 @Composable
 private fun HomeScreen(
-    uiState: com.ygsync.controller.youtube.YgYouTubeUiState,
+    uiState: YgYouTubeUiState,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
@@ -258,11 +256,15 @@ private fun HomeScreen(
         )
 
         if (uiState.isLoading) {
+
             LoadingView()
+
         } else if (uiState.error != null) {
+
             ErrorView(
                 message = uiState.error
             )
+
         } else if (uiState.results.isNotEmpty()) {
 
             Text(
@@ -289,7 +291,7 @@ private fun HomeScreen(
 
 @Composable
 private fun SearchScreen(
-    uiState: com.ygsync.controller.youtube.YgYouTubeUiState,
+    uiState: YgYouTubeUiState,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
@@ -311,17 +313,24 @@ private fun SearchScreen(
         )
 
         if (uiState.isLoading) {
+
             LoadingView()
+
         } else if (uiState.error != null) {
+
             ErrorView(
                 message = uiState.error
             )
+
         } else if (uiState.results.isNotEmpty()) {
+
             VideoList(
                 results = uiState.results,
                 onVideoClick = onVideoClick
             )
+
         } else {
+
             Text(
                 text = "Busca canciones, artistas, videos o géneros.",
                 color = YgMuted,
@@ -350,6 +359,7 @@ private fun Header(
         Column(
             modifier = Modifier.weight(1f)
         ) {
+
             Text(
                 text = title,
                 color = YgText,
@@ -378,6 +388,7 @@ private fun Header(
                 ),
             contentAlignment = Alignment.Center
         ) {
+
             Icon(
                 imageVector = Icons.Default.Tv,
                 contentDescription = "Pantallas",
@@ -387,7 +398,6 @@ private fun Header(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchBar(
     query: String,
@@ -455,6 +465,7 @@ private fun SearchBar(
                 },
             contentAlignment = Alignment.Center
         ) {
+
             Icon(
                 Icons.Default.Search,
                 contentDescription = "Buscar",
@@ -471,13 +482,14 @@ private fun VideoList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+        contentPadding = PaddingValues(
             start = 14.dp,
             end = 14.dp,
             bottom = 110.dp
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+
         items(
             items = results,
             key = {
@@ -536,6 +548,7 @@ private fun VideoCard(
                 )
 
                 if (result.duration.isNotEmpty()) {
+
                     Surface(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -545,6 +558,7 @@ private fun VideoCard(
                             alpha = 0.78f
                         )
                     ) {
+
                         Text(
                             text = result.duration,
                             color = Color.White,
@@ -587,18 +601,6 @@ private fun VideoCard(
                     style = MaterialTheme.typography.bodySmall
                 )
 
-                if (result.viewCount.isNotEmpty()) {
-                    Spacer(
-                        modifier = Modifier.height(3.dp)
-                    )
-
-                    Text(
-                        text = "${result.viewCount} vistas",
-                        color = YgMuted,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-
                 Spacer(
                     modifier = Modifier.height(6.dp)
                 )
@@ -621,6 +623,7 @@ private fun VideoCard(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
+
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = "Reproducir",
@@ -668,6 +671,7 @@ private fun WelcomeView() {
                 ),
             contentAlignment = Alignment.Center
         ) {
+
             Icon(
                 Icons.Default.PlayArrow,
                 contentDescription = null,
@@ -707,6 +711,7 @@ private fun LoadingView() {
             .padding(40.dp),
         contentAlignment = Alignment.Center
     ) {
+
         CircularProgressIndicator(
             color = YgBlue
         )
@@ -764,7 +769,7 @@ private fun LibraryScreen(
         } else {
 
             Text(
-                text = "Reproduciendo",
+                text = "Última reproducción",
                 color = YgText,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(
@@ -797,14 +802,12 @@ private fun DevicesScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(
-                    horizontal = 18.dp
-                ),
+                .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
 
             Text(
-                text = "${receivers.size} detectadas",
+                text = "${receivers.size} pantallas",
                 modifier = Modifier.weight(1f),
                 color = YgMuted
             )
@@ -812,6 +815,7 @@ private fun DevicesScreen(
             TextButton(
                 onClick = onRefresh
             ) {
+
                 Text(
                     text = "Actualizar",
                     color = YgBlue
@@ -840,13 +844,13 @@ private fun DevicesScreen(
                 )
 
                 Text(
-                    text = "Buscando pantallas...",
+                    text = "No hay pantallas conectadas",
                     color = YgText,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text = "Asegúrate de que SmartTube Sync esté abierto en las pantallas.",
+                    text = "Las pantallas SmartTube aparecerán aquí.",
                     color = YgMuted
                 )
             }
@@ -854,8 +858,9 @@ private fun DevicesScreen(
         } else {
 
             LazyColumn(
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    16.dp,
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
                     bottom = 110.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -947,7 +952,7 @@ private fun ReceiverCard(
                 text = if (receiver.connected) {
                     "Conectada"
                 } else {
-                    "Buscando"
+                    "Desconectada"
                 },
                 color = if (receiver.connected) {
                     Color(0xFF2E7D32)
@@ -1121,117 +1126,46 @@ private fun BottomItem(
     }
 }
 
-@Composable
-private fun ReceiverDialog(
-    receivers: List<Receiver>,
-    onDismiss: () -> Unit
-) {
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss
-    ) {
-
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.White
-            )
-        ) {
-
-            Column(
-                modifier = Modifier.padding(22.dp)
-            ) {
-
-                Text(
-                    text = "Pantallas conectadas",
-                    color = YgText,
-                    fontWeight = FontWeight.ExtraBold,
-                    style = MaterialTheme.typography.titleLarge
-                )
-
-                Spacer(
-                    modifier = Modifier.height(12.dp)
-                )
-
-                if (receivers.isEmpty()) {
-
-                    Text(
-                        text = "No se encontraron receptores.",
-                        color = YgMuted
-                    )
-
-                } else {
-
-                    receivers.forEach { receiver ->
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    vertical = 8.dp
-                                ),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-
-                            Icon(
-                                Icons.Default.Tv,
-                                contentDescription = null,
-                                tint = YgBlue
-                            )
-
-                            Spacer(
-                                modifier = Modifier.width(10.dp)
-                            )
-
-                            Text(
-                                text = receiver.name,
-                                modifier = Modifier.weight(1f),
-                                color = YgText
-                            )
-                        }
-                    }
-                }
-
-                Spacer(
-                    modifier = Modifier.height(12.dp)
-                )
-
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = YgBlue
-                    )
-                ) {
-                    Text("Cerrar")
-                }
-            }
-        }
-    }
-}
-
 private fun sendVideoToReceivers(
     context: Context,
     video: YgYouTubeResult
 ) {
-    try {
-        val service = ControllerSyncService.getInstance()
+    val service = ControllerSyncService.getInstance()
 
-        if (service != null) {
-            service.loadVideoAndWaitReady(
-                video.videoId
-            )
-        } else {
-            Toast.makeText(
-                context,
-                "El servicio de sincronización todavía está iniciando.",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-    } catch (e: Exception) {
+    if (service == null) {
         Toast.makeText(
             context,
-            "No se pudo enviar el video: ${e.message}",
-            Toast.LENGTH_LONG
+            "El servicio de sincronización todavía está iniciando.",
+            Toast.LENGTH_SHORT
         ).show()
+        return
+    }
+
+    kotlinx.coroutines.MainScope().launch {
+        try {
+
+            val success =
+                service.loadVideoAndWaitReady(
+                    video.videoId
+                )
+
+            Toast.makeText(
+                context,
+                if (success) {
+                    "Video enviado a las pantallas"
+                } else {
+                    "El video fue enviado, pero alguna pantalla no confirmó la reproducción"
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+
+        } catch (e: Exception) {
+
+            Toast.makeText(
+                context,
+                "Error al enviar: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 }
