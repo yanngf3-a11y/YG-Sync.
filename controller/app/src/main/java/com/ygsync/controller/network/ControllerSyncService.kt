@@ -13,12 +13,14 @@ import com.ygsync.controller.R
 import com.ygsync.controller.data.Receiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -43,6 +45,12 @@ class ControllerSyncService : Service() {
 
     private val connections =
         ConcurrentHashMap<String, ReceiverConnection>()
+
+    private val discovery by lazy {
+        ReceiverDiscovery(applicationContext)
+    }
+
+    private var discoveryJob: Job? = null
 
     private val _receiverList = MutableStateFlow<List<Receiver>>(emptyList())
     val receiverList: StateFlow<List<Receiver>> = _receiverList.asStateFlow()
@@ -74,6 +82,8 @@ class ControllerSyncService : Service() {
         )
 
         updateDiagnostic("YG SYNC — CONTROLADOR ACTIVO")
+
+        startDiscovery()
     }
 
     override fun onStartCommand(
@@ -97,6 +107,8 @@ class ControllerSyncService : Service() {
     }
 
     override fun onDestroy() {
+        discoveryJob?.cancel()
+
         connections.values.forEach {
             try {
                 it.disconnect()
@@ -111,6 +123,46 @@ class ControllerSyncService : Service() {
         instance = null
 
         super.onDestroy()
+    }
+
+    /**
+     * Lanza una búsqueda UDP de pantallas y registra
+     * automáticamente cada una que responda.
+     *
+     * Antes esta función no existía y el botón "Buscar"
+     * de la interfaz no hacía ningún descubrimiento real.
+     */
+    fun startDiscovery() {
+
+        discoveryJob?.cancel()
+
+        discoveryJob = serviceScope.launch(Dispatchers.IO) {
+
+            updateDiagnostic(
+                "YG SYNC — BUSCANDO PANTALLAS"
+            )
+
+            try {
+
+                discovery.discoverReceivers()
+                    .collect { receiver ->
+
+                        withContext(Dispatchers.Main.immediate) {
+                            registerReceiver(receiver)
+                        }
+                    }
+
+            } catch (e: Exception) {
+
+                updateDiagnostic(
+                    "YG SYNC — ERROR BUSCANDO: ${e.message}"
+                )
+            }
+
+            updateDiagnostic(
+                "YG SYNC — BÚSQUEDA FINALIZADA (${_receiverList.value.size})"
+            )
+        }
     }
 
     /**
