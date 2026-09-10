@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startControllerService() {
+
         val intent =
             Intent(
                 this,
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity() {
             }
 
         try {
+
             if (
                 Build.VERSION.SDK_INT >=
                 Build.VERSION_CODES.O
@@ -125,6 +127,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 startService(intent)
             }
+
         } catch (_: Exception) {
         }
     }
@@ -142,13 +145,20 @@ fun YGSyncApp() {
         )
     }
 
+    /*
+     * Espera a que el servicio quede disponible.
+     */
     LaunchedEffect(Unit) {
+
         repeat(40) {
+
             val current =
                 ControllerSyncService.getInstance()
 
             if (current != null) {
+
                 service = current
+
                 return@LaunchedEffect
             }
 
@@ -158,10 +168,13 @@ fun YGSyncApp() {
 
     val receiverState =
         if (service != null) {
+
             service!!
                 .receiverList
                 .collectAsState()
+
         } else {
+
             remember {
                 mutableStateOf(
                     emptyList<Receiver>()
@@ -171,10 +184,13 @@ fun YGSyncApp() {
 
     val connectionState =
         if (service != null) {
+
             service!!
                 .connectionStates
                 .collectAsState()
+
         } else {
+
             remember {
                 mutableStateOf(
                     emptyMap<String, Boolean>()
@@ -184,10 +200,13 @@ fun YGSyncApp() {
 
     val latencyState =
         if (service != null) {
+
             service!!
                 .latencies
                 .collectAsState()
+
         } else {
+
             remember {
                 mutableStateOf(
                     emptyMap<String, Long>()
@@ -197,10 +216,13 @@ fun YGSyncApp() {
 
     val serviceDiagnostic =
         if (service != null) {
+
             service!!
                 .diagnostic
                 .collectAsState()
+
         } else {
+
             remember {
                 mutableStateOf(
                     "Iniciando servicio..."
@@ -236,6 +258,15 @@ fun YGSyncApp() {
         mutableStateOf(false)
     }
 
+    /*
+     * Volumen actual.
+     *
+     * Separamos el volumen guardado del estado de mute.
+     * Esto permite:
+     *
+     * 80% -> MUTE -> 0%
+     * 0%  -> UNMUTE -> 80%
+     */
     var globalVolume by remember {
         mutableFloatStateOf(1.0f)
     }
@@ -244,14 +275,29 @@ fun YGSyncApp() {
         mutableStateOf(false)
     }
 
+    /*
+     * Volumen que existía antes de silenciar.
+     */
+    var volumeBeforeMute by remember {
+        mutableFloatStateOf(1.0f)
+    }
+
     val discovery =
         remember(context) {
             ReceiverDiscovery(context)
         }
 
+    /*
+     * ---------------------------------------------------------
+     * DESCUBRIMIENTO
+     * ---------------------------------------------------------
+     */
+
     fun startDiscovery() {
 
-        if (discovering) return
+        if (discovering) {
+            return
+        }
 
         discovering = true
         discoveryError = false
@@ -260,8 +306,10 @@ fun YGSyncApp() {
             ControllerSyncService.getInstance()
 
         if (syncService == null) {
+
             discovering = false
             discoveryError = true
+
             return
         }
 
@@ -321,25 +369,39 @@ fun YGSyncApp() {
                 discovering = false
 
                 try {
+
                     if (
                         multicastLock
                             ?.isHeld == true
                     ) {
+
                         multicastLock.release()
                     }
+
                 } catch (_: Exception) {
                 }
             }
         }
     }
 
+    /*
+     * ---------------------------------------------------------
+     * CONEXIÓN MANUAL
+     * ---------------------------------------------------------
+     */
+
     fun connectManual() {
 
         val ip =
             manualIp.trim()
 
-        if (ip.isBlank()) return
-        if (manualConnecting) return
+        if (ip.isBlank()) {
+            return
+        }
+
+        if (manualConnecting) {
+            return
+        }
 
         val syncService =
             ControllerSyncService.getInstance()
@@ -362,16 +424,26 @@ fun YGSyncApp() {
         CoroutineScope(
             Dispatchers.Main.immediate
         ).launch {
+
             delay(1200)
+
             manualConnecting = false
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * COMANDOS GLOBALES
+     * ---------------------------------------------------------
+     */
 
     fun sendCommand(
         command: String
     ) {
 
-        if (commandRunning) return
+        if (commandRunning) {
+            return
+        }
 
         val syncService =
             ControllerSyncService.getInstance()
@@ -382,9 +454,16 @@ fun YGSyncApp() {
         syncService.sendCommandAsync(
             command
         ) { _, _ ->
+
             commandRunning = false
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * COMANDO INDIVIDUAL
+     * ---------------------------------------------------------
+     */
 
     fun sendIndividualCommand(
         receiver: Receiver,
@@ -409,6 +488,12 @@ fun YGSyncApp() {
         }
     }
 
+    /*
+     * ---------------------------------------------------------
+     * VIDEO ID
+     * ---------------------------------------------------------
+     */
+
     fun extractVideoId(
         input: String
     ): String {
@@ -418,22 +503,37 @@ fun YGSyncApp() {
 
         return when {
 
-            clean.contains("youtu.be/") ->
+            clean.contains(
+                "youtu.be/"
+            ) ->
+
                 clean
-                    .substringAfter("youtu.be/")
+                    .substringAfter(
+                        "youtu.be/"
+                    )
                     .substringBefore("?")
                     .substringBefore("&")
                     .trim()
 
-            clean.contains("youtube.com/watch?v=") ->
+            clean.contains(
+                "youtube.com/watch?v="
+            ) ->
+
                 clean
-                    .substringAfter("watch?v=")
+                    .substringAfter(
+                        "watch?v="
+                    )
                     .substringBefore("&")
                     .trim()
 
-            clean.contains("youtube.com/shorts/") ->
+            clean.contains(
+                "youtube.com/shorts/"
+            ) ->
+
                 clean
-                    .substringAfter("youtube.com/shorts/")
+                    .substringAfter(
+                        "youtube.com/shorts/"
+                    )
                     .substringBefore("?")
                     .substringBefore("&")
                     .trim()
@@ -442,6 +542,12 @@ fun YGSyncApp() {
                 clean
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * CARGAR VIDEO
+     * ---------------------------------------------------------
+     */
 
     fun loadVideo() {
 
@@ -474,58 +580,157 @@ fun YGSyncApp() {
             commandRunning = false
 
             if (ready) {
+
                 currentVideo =
                     cleanVideoId
             }
         }
     }
 
+    /*
+     * ---------------------------------------------------------
+     * VOLUMEN
+     * ---------------------------------------------------------
+     */
+
     fun setGlobalVolume(
         value: Float
     ) {
 
-        globalVolume =
-            value.coerceIn(0f, 1f)
+        val safeVolume =
+            value.coerceIn(
+                0f,
+                1f
+            )
 
-        muted =
-            globalVolume <= 0f
+        /*
+         * Si el usuario mueve el slider,
+         * deja de estar en mute.
+         */
+        if (safeVolume > 0f) {
 
-        val volume =
-            if (muted) {
-                0f
-            } else {
-                globalVolume
-            }
+            globalVolume =
+                safeVolume
 
-        sendCommand(
-            "SET_VOLUME|$volume"
-        )
-    }
+            volumeBeforeMute =
+                safeVolume
 
-    fun toggleMute() {
-
-        if (muted) {
-
-            muted = false
-
-            val restored =
-                if (globalVolume <= 0f) {
-                    1f
-                } else {
-                    globalVolume
-                }
-
-            setGlobalVolume(restored)
+            muted =
+                false
 
         } else {
 
-            muted = true
+            /*
+             * Si mueve el slider completamente
+             * a cero, guardamos el volumen anterior.
+             */
+            if (globalVolume > 0f) {
 
-            sendCommand(
-                "SET_VOLUME|0.0"
-            )
+                volumeBeforeMute =
+                    globalVolume
+            }
+
+            globalVolume =
+                0f
+
+            muted =
+                true
+        }
+
+        /*
+         * Enviamos directamente el valor.
+         *
+         * No usamos commandRunning aquí porque
+         * volumen/mute debe poder responder
+         * inmediatamente.
+         */
+        val syncService =
+            ControllerSyncService.getInstance()
+                ?: return
+
+        syncService.sendCommandAsync(
+            "SET_VOLUME|$safeVolume"
+        ) { _, _ ->
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * MUTE / UNMUTE
+     * ---------------------------------------------------------
+     */
+
+    fun toggleMute() {
+
+        val syncService =
+            ControllerSyncService.getInstance()
+                ?: return
+
+        if (muted) {
+
+            /*
+             * Restaurar el último volumen conocido.
+             */
+            val restored =
+                volumeBeforeMute
+                    .coerceIn(
+                        0.05f,
+                        1.0f
+                    )
+
+            globalVolume =
+                restored
+
+            muted =
+                false
+
+            syncService.sendCommandAsync(
+                "SET_VOLUME|$restored"
+            ) { _, _ ->
+            }
+
+            return
+        }
+
+        /*
+         * Guardamos el volumen actual antes
+         * de silenciar.
+         */
+        if (globalVolume > 0f) {
+
+            volumeBeforeMute =
+                globalVolume
+        }
+
+        muted =
+            true
+
+        /*
+         * El volumen visual pasa a cero,
+         * pero volumeBeforeMute conserva
+         * el volumen real anterior.
+         */
+        globalVolume =
+            0f
+
+        syncService.sendCommandAsync(
+            "SET_VOLUME|0.0"
+        ) { _, _ ->
+        }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * DESCUBRIMIENTO AUTOMÁTICO
+     * ---------------------------------------------------------
+     *
+     * Al abrir la aplicación:
+     * - busca inmediatamente;
+     * - vuelve a buscar periódicamente.
+     *
+     * Esto permite encontrar pantallas que se
+     * enciendan después de abrir el Controller.
+     */
 
     LaunchedEffect(service) {
 
@@ -533,17 +738,26 @@ fun YGSyncApp() {
             return@LaunchedEffect
         }
 
-        delay(500)
+        delay(400)
 
-        if (
-            service!!
-                .receiverList
-                .value
-                .isEmpty()
-        ) {
+        while (true) {
+
             startDiscovery()
+
+            /*
+             * No saturamos la red.
+             * El descubrimiento vuelve a ejecutarse
+             * cada 7 segundos.
+             */
+            delay(7000)
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * UI
+     * ---------------------------------------------------------
+     */
 
     Surface(
         modifier =
@@ -575,8 +789,10 @@ fun YGSyncApp() {
             }
 
             item {
+
                 ManualConnectionCard(
-                    ip = manualIp,
+                    ip =
+                        manualIp,
                     onIpChange = {
                         manualIp = it
                     },
@@ -589,6 +805,7 @@ fun YGSyncApp() {
             }
 
             item {
+
                 ConnectionSummary(
                     receiverCount =
                         receiverState.value.size,
@@ -603,6 +820,7 @@ fun YGSyncApp() {
             }
 
             item {
+
                 GlobalControlCard(
                     commandRunning =
                         commandRunning,
@@ -638,6 +856,7 @@ fun YGSyncApp() {
             }
 
             item {
+
                 NowPlayingCard(
                     videoId =
                         videoId,
@@ -655,6 +874,7 @@ fun YGSyncApp() {
             }
 
             item {
+
                 SectionHeader(
                     title =
                         "Pantallas",
@@ -668,6 +888,7 @@ fun YGSyncApp() {
             }
 
             item {
+
                 DiagnosticCard(
                     message =
                         serviceDiagnostic.value,
@@ -681,6 +902,7 @@ fun YGSyncApp() {
             ) {
 
                 item {
+
                     EmptyState(
                         discovering =
                             discovering,
@@ -854,8 +1076,8 @@ fun Header() {
                     10.sp,
                 fontWeight =
                     FontWeight.Bold,
-                    color =
-                        Success
+                color =
+                    Success
             )
         }
     }
@@ -1330,7 +1552,11 @@ fun GlobalControlCard(
                                 Icons.Default.VolumeUp
                             },
                         contentDescription =
-                            "Silenciar",
+                            if (muted) {
+                                "Activar sonido"
+                            } else {
+                                "Silenciar"
+                            },
                         tint =
                             Blue
                     )
@@ -2040,8 +2266,8 @@ fun EmptyState(
                     "Activa SmartTube Sync en tus receptores.",
                 fontSize =
                     12.sp,
-                color =
-                    TextSecondary
+                    color =
+                        TextSecondary
             )
 
             Spacer(
@@ -2186,6 +2412,7 @@ fun ScreenCard(
                     Text(
                         text =
                             when {
+
                                 connected &&
                                         latency != null ->
                                     "● Conectada · ${latency} ms"
@@ -2342,6 +2569,7 @@ fun MiniControl(
             RoundedCornerShape(12.dp),
         color =
             when {
+
                 active ->
                     Blue
 
@@ -2371,6 +2599,7 @@ fun MiniControl(
                     null,
                 tint =
                     when {
+
                         active ->
                             Color.White
 
