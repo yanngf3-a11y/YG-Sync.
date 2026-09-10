@@ -30,13 +30,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,6 +48,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,6 +81,9 @@ import com.ygsync.controller.youtube.YgYouTubeViewModel
 import com.ygsync.controller.youtube.YgYouTubeViewModelFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val YgBlue = Color(0xFF1976D2)
 private val YgLightBlue = Color(0xFF42A5F5)
@@ -167,7 +175,6 @@ private fun YgSyncApp(
         modifier = Modifier.fillMaxSize(),
         color = YgBackground
     ) {
-
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -209,6 +216,19 @@ private fun YgSyncApp(
                 )
 
                 3 -> DevicesScreen(
+                    receivers = receivers,
+                    onRefresh = {
+                        val service =
+                            ControllerSyncService.getInstance()
+
+                        if (service != null) {
+                            receivers =
+                                service.receiverList.value
+                        }
+                    }
+                )
+
+                4 -> TechnicalScreen(
                     receivers = receivers,
                     onRefresh = {
                         val service =
@@ -815,7 +835,6 @@ private fun DevicesScreen(
             TextButton(
                 onClick = onRefresh
             ) {
-
                 Text(
                     text = "Actualizar",
                     color = YgBlue
@@ -966,6 +985,636 @@ private fun ReceiverCard(
     }
 }
 
+/* ============================================================
+   PANTALLA TÉCNICA
+   ============================================================ */
+
+@Composable
+private fun TechnicalScreen(
+    receivers: List<Receiver>,
+    onRefresh: () -> Unit
+) {
+    var lastRefresh by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    val eventLog = remember {
+        mutableStateListOf<String>()
+    }
+
+    fun addLog(message: String) {
+        val time = SimpleDateFormat(
+            "HH:mm:ss",
+            Locale.getDefault()
+        ).format(Date())
+
+        eventLog.add(
+            0,
+            "$time  •  $message"
+        )
+
+        if (eventLog.size > 12) {
+            eventLog.removeAt(eventLog.lastIndex)
+        }
+    }
+
+    LaunchedEffect(receivers) {
+        if (receivers.isNotEmpty()) {
+            addLog(
+                "Pantallas detectadas: ${receivers.size}"
+            )
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+
+        Header(
+            title = "Técnico"
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 4.dp,
+                bottom = 110.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+
+            item {
+
+                TechnicalStatusCard(
+                    receiverCount = receivers.size
+                )
+            }
+
+            item {
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+
+                    Button(
+                        onClick = {
+                            onRefresh()
+
+                            lastRefresh =
+                                SimpleDateFormat(
+                                    "HH:mm:ss",
+                                    Locale.getDefault()
+                                ).format(Date())
+
+                            addLog(
+                                "Búsqueda de pantallas solicitada"
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(13.dp),
+                        contentPadding = PaddingValues(
+                            horizontal = 12.dp,
+                            vertical = 10.dp
+                        ),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = YgBlue
+                        )
+                    ) {
+
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+
+                        Spacer(
+                            modifier = Modifier.width(6.dp)
+                        )
+
+                        Text(
+                            text = "Buscar pantallas"
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            addLog(
+                                "Servicio: ${
+                                    if (
+                                        ControllerSyncService
+                                            .getInstance() != null
+                                    ) {
+                                        "ACTIVO"
+                                    } else {
+                                        "NO DISPONIBLE"
+                                    }
+                                }"
+                            )
+                        },
+                        modifier = Modifier.weight(0.72f),
+                        shape = RoundedCornerShape(13.dp),
+                        contentPadding = PaddingValues(
+                            horizontal = 10.dp,
+                            vertical = 10.dp
+                        )
+                    ) {
+
+                        Icon(
+                            Icons.Default.Build,
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp)
+                        )
+
+                        Spacer(
+                            modifier = Modifier.width(5.dp)
+                        )
+
+                        Text(
+                            text = "Estado"
+                        )
+                    }
+                }
+            }
+
+            item {
+
+                Text(
+                    text = "Pantallas",
+                    color = YgText,
+                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+
+            if (receivers.isEmpty()) {
+
+                item {
+
+                    TechnicalEmptyCard()
+                }
+
+            } else {
+
+                items(
+                    items = receivers,
+                    key = {
+                        "technical_${it.id}"
+                    }
+                ) { receiver ->
+
+                    TechnicalReceiverCard(
+                        receiver = receiver,
+                        onTest = {
+                            addLog(
+                                "Prueba seleccionada → ${receiver.name}"
+                            )
+                        }
+                    )
+                }
+            }
+
+            item {
+
+                TechnicalLogCard(
+                    logs = eventLog,
+                    lastRefresh = lastRefresh
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TechnicalStatusCard(
+    receiverCount: Int
+) {
+    val serviceActive =
+        ControllerSyncService.getInstance() != null
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 2.dp
+        )
+    ) {
+
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (serviceActive) {
+                                Color(0xFFE8F5E9)
+                            } else {
+                                Color(0xFFFFEBEE)
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+
+                    Icon(
+                        imageVector = Icons.Default.Wifi,
+                        contentDescription = null,
+                        tint = if (serviceActive) {
+                            Color(0xFF2E7D32)
+                        } else {
+                            Color(0xFFC62828)
+                        },
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+
+                Spacer(
+                    modifier = Modifier.width(11.dp)
+                )
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+
+                    Text(
+                        text = "Estado general",
+                        color = YgText,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+
+                    Text(
+                        text = if (serviceActive) {
+                            "Servicio de sincronización activo"
+                        } else {
+                            "Servicio no disponible"
+                        },
+                        color = YgMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Text(
+                    text = if (serviceActive) {
+                        "ACTIVO"
+                    } else {
+                        "ERROR"
+                    },
+                    color = if (serviceActive) {
+                        Color(0xFF2E7D32)
+                    } else {
+                        Color(0xFFC62828)
+                    },
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.height(14.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+
+                TechnicalMiniStatus(
+                    title = "UDP",
+                    value = "8766",
+                    modifier = Modifier.weight(1f)
+                )
+
+                TechnicalMiniStatus(
+                    title = "TCP",
+                    value = "8765",
+                    modifier = Modifier.weight(1f)
+                )
+
+                TechnicalMiniStatus(
+                    title = "Pantallas",
+                    value = receiverCount.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TechnicalMiniStatus(
+    title: String,
+    value: String,
+    modifier: Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(11.dp),
+        color = YgBackground
+    ) {
+
+        Column(
+            modifier = Modifier.padding(
+                horizontal = 9.dp,
+                vertical = 8.dp
+            ),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
+            Text(
+                text = title,
+                color = YgMuted,
+                style = MaterialTheme.typography.labelSmall
+            )
+
+            Spacer(
+                modifier = Modifier.height(2.dp)
+            )
+
+            Text(
+                text = value,
+                color = YgText,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+
+@Composable
+private fun TechnicalReceiverCard(
+    receiver: Receiver,
+    onTest: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 1.dp
+        )
+    ) {
+
+        Column(
+            modifier = Modifier.padding(14.dp)
+        ) {
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (receiver.connected) {
+                                Color(0xFFE8F5E9)
+                            } else {
+                                Color(0xFFFFF3E0)
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+
+                    Icon(
+                        Icons.Default.Tv,
+                        contentDescription = null,
+                        tint = if (receiver.connected) {
+                            Color(0xFF2E7D32)
+                        } else {
+                            Color(0xFFEF6C00)
+                        },
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(
+                    modifier = Modifier.width(10.dp)
+                )
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+
+                    Text(
+                        text = receiver.name,
+                        color = YgText,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = if (receiver.connected) {
+                            "Conexión WebSocket disponible"
+                        } else {
+                            "Sin conexión activa"
+                        },
+                        color = YgMuted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+
+                Text(
+                    text = if (receiver.connected) {
+                        "ONLINE"
+                    } else {
+                        "OFFLINE"
+                    },
+                    color = if (receiver.connected) {
+                        Color(0xFF2E7D32)
+                    } else {
+                        Color(0xFFEF6C00)
+                    },
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.height(10.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+
+                    Text(
+                        text = "Dirección",
+                        color = YgMuted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+
+                    Text(
+                        text = receiver.address,
+                        color = YgText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onTest,
+                    enabled = receiver.connected,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(
+                        horizontal = 13.dp,
+                        vertical = 7.dp
+                    )
+                ) {
+
+                    Text(
+                        text = "Probar"
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TechnicalEmptyCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White
+        )
+    ) {
+
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            Icon(
+                Icons.Default.Tv,
+                contentDescription = null,
+                tint = YgMuted,
+                modifier = Modifier.size(30.dp)
+            )
+
+            Spacer(
+                modifier = Modifier.width(12.dp)
+            )
+
+            Column {
+
+                Text(
+                    text = "No se detectaron pantallas",
+                    color = YgText,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Pulsa «Buscar pantallas» para actualizar.",
+                    color = YgMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TechnicalLogCard(
+    logs: List<String>,
+    lastRefresh: String?
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White
+        )
+    ) {
+
+        Column(
+            modifier = Modifier.padding(14.dp)
+        ) {
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Icon(
+                    Icons.Default.Build,
+                    contentDescription = null,
+                    tint = YgBlue,
+                    modifier = Modifier.size(19.dp)
+                )
+
+                Spacer(
+                    modifier = Modifier.width(7.dp)
+                )
+
+                Text(
+                    text = "Registro",
+                    color = YgText,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.height(9.dp)
+            )
+
+            if (lastRefresh != null) {
+
+                Text(
+                    text = "Última actualización: $lastRefresh",
+                    color = YgMuted,
+                    style = MaterialTheme.typography.labelSmall
+                )
+
+                Spacer(
+                    modifier = Modifier.height(7.dp)
+                )
+            }
+
+            if (logs.isEmpty()) {
+
+                Text(
+                    text = "Esperando eventos...",
+                    color = YgMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+            } else {
+
+                logs.take(8).forEach { log ->
+
+                    Text(
+                        text = log,
+                        color = YgText,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(
+                            vertical = 2.dp
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SettingsScreen() {
     Column(
@@ -1067,11 +1716,20 @@ private fun BottomNavigationBar(
             )
 
             BottomItem(
-                icon = Icons.Default.Settings,
-                label = "Ajustes",
+                icon = Icons.Default.Build,
+                label = "Técnico",
                 selected = selectedTab == 4,
                 onClick = {
                     onTabSelected(4)
+                }
+            )
+
+            BottomItem(
+                icon = Icons.Default.Settings,
+                label = "Ajustes",
+                selected = selectedTab == 5,
+                onClick = {
+                    onTabSelected(5)
                 }
             )
         }
@@ -1092,7 +1750,7 @@ private fun BottomItem(
                 onClick()
             }
             .padding(
-                horizontal = 12.dp,
+                horizontal = 8.dp,
                 vertical = 5.dp
             ),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1106,7 +1764,7 @@ private fun BottomItem(
             } else {
                 YgMuted
             },
-            modifier = Modifier.size(23.dp)
+            modifier = Modifier.size(22.dp)
         )
 
         Text(
