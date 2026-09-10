@@ -177,9 +177,28 @@ class ControllerSyncService : Service() {
             _receiverList.value =
                 _receiverList.value + receiver
         } else {
+
+            /*
+             * IMPORTANTE:
+             *
+             * Un redescubrimiento (por ejemplo, tocar "Buscar"
+             * de nuevo) no debe pisar el estado real de la
+             * conexión ni la latencia. Antes esto reemplazaba
+             * la pantalla entera por una versión "fresca" con
+             * connected=false, aunque la conexión siguiera viva,
+             * y por eso la UI mostraba "Desconectada" aunque el
+             * video se reprodujera bien.
+             */
+            val merged =
+                existing.copy(
+                    name = receiver.name,
+                    address = receiver.address,
+                    port = receiver.port
+                )
+
             _receiverList.value =
                 _receiverList.value.map {
-                    if (it.id == receiver.id) receiver else it
+                    if (it.id == receiver.id) merged else it
                 }
         }
 
