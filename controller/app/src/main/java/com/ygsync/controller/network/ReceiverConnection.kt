@@ -1,8 +1,6 @@
 package com.ygsync.controller.network
 
-import com.ygsync.controller.data.Receiver
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import android.util.Log
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
@@ -10,595 +8,792 @@ import java.net.URI
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 class ReceiverConnection(
-    private val receiver: Receiver
+    private val address: String,
+    private val port: Int
 ) {
 
     companion object {
+        private const val TAG = "YG_SYNC_CONNECTION"
         private const val CONNECT_TIMEOUT_MS = 5000L
-        private const val RESPONSE_TIMEOUT_MS = 3000L
+        private const val RESPONSE_TIMEOUT_MS = 5000L
+        private const val READY_TIMEOUT_MS = 30000L
     }
 
     private var webSocket: WebSocketClient? = null
 
-    private val connected =
-        AtomicBoolean(false)
+    @Volatile
+    private var connected = false
 
-    private val connectionLock =
-        Any()
+    private val responseLock = Any()
 
-    private fun createClient(): WebSocketClient {
+    private val responses =
+        mutableMapOf<String, JSONObject>()
 
-        val uri =
-            URI(
-                "ws://${receiver.address}:${receiver.port}"
+    fun connect(): Boolean {
+        disconnect()
+
+        return try {
+            val uri =
+                URI(
+                    "ws://$address:$port"
+                )
+
+            val connectionLatch =
+                CountDownLatch(1)
+
+            var connectionResult =
+                false
+
+            val client =
+                object : WebSocketClient(uri) {
+
+                    override fun onOpen(
+                        handshake: ServerHandshake?
+                    ) {
+                        Log.d(
+                            TAG,
+                            "Conectado a $address:$port"
+                        )
+
+                        connected = true
+                        connectionResult = true
+                        connectionLatch.countDown()
+                    }
+
+                    override fun onMessage(
+                        message: String?
+                    ) {
+                        if (message == null) {
+                            return
+                        }
+
+                        Log.d(
+                            TAG,
+                            "Mensaje recibido: $message"
+                        )
+
+                        try {
+                            val json =
+                                JSONObject(message)
+
+                            val commandId =
+                                json.optString(
+                                    "commandId",
+                                    ""
+                                )
+
+                            if (commandId.isNotEmpty()) {
+                                synchronized(responseLock) {
+                                    responses[commandId] =
+                                        json
+
+                                    responseLock.notifyAll()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(
+                                TAG,
+                                "Error procesando respuesta",
+                                e
+                            )
+                        }
+                    }
+
+                    override fun onClose(
+                        code: Int,
+                        reason: String?,
+                        remote: Boolean
+                    ) {
+                        Log.d(
+                            TAG,
+                            "Desconectado de $address:$port"
+                        )
+
+                        connected = false
+                    }
+
+                    override fun onError(
+                        ex: Exception?
+                    ) {
+                        Log.e(
+                            TAG,
+                            "Error WebSocket",
+                            ex
+                        )
+
+                        connected = false
+                        connectionLatch.countDown()
+                    }
+                }
+
+            client.connect()
+
+            val completed =
+                connectionLatch.await(
+                    CONNECT_TIMEOUT_MS,
+                    TimeUnit.MILLISECONDS
+                )
+
+            if (!completed || !connectionResult) {
+                try {
+                    client.close()
+                } catch (_: Exception) {
+                }
+
+                connected = false
+                return false
+            }
+
+            webSocket = client
+
+            true
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Error conectando a $address:$port",
+                e
             )
 
-        return object : WebSocketClient(uri) {
-
-            override fun onOpen(
-                handshake: ServerHandshake?
-            ) {
-
-                connected.set(true)
-            }
-
-            override fun onMessage(
-                message: String
-            ) {
-                synchronized(responseLock) {
-
-                    lastResponse =
-                        message
-
-                    responseLock.notifyAll()
-                }
-            }
-
-            override fun onClose(
-                code: Int,
-                reason: String?,
-                remote: Boolean
-            ) {
-
-                connected.set(false)
-
-                synchronized(responseLock) {
-
-                    lastResponse =
-                        null
-
-                    responseLock.notifyAll()
-                }
-            }
-
-            override fun onError(
-                exception: Exception?
-            ) {
-
-                connected.set(false)
-
-                synchronized(responseLock) {
-
-                    lastResponse =
-                        null
-
-                    responseLock.notifyAll()
-                }
-            }
+            connected = false
+            false
         }
     }
 
-    private val responseLock =
-        Object()
-
-    private var lastResponse: String? = null
-
-    suspend fun connect(): Boolean =
-        withContext(Dispatchers.IO) {
-
-            disconnect()
-
-            synchronized(connectionLock) {
-
-                try {
-
-                    val client =
-                        createClient()
-
-                    webSocket =
-                        client
-
-                    client.connect()
-
-                    val startTime =
-                        System.currentTimeMillis()
-
-                    while (
-                        !connected.get() &&
-                        System.currentTimeMillis() -
-                            startTime <
-                            CONNECT_TIMEOUT_MS
-                    ) {
-
-                        Thread.sleep(25)
-                    }
-
-                    if (!connected.get()) {
-
-                        try {
-                            client.close()
-                        } catch (_: Exception) {
-                        }
-
-                        webSocket =
-                            null
-
-                        return@withContext false
-                    }
-
-                    true
-
-                } catch (_: Exception) {
-
-                    disconnect()
-
-                    false
-                }
-            }
+    fun ping(): Boolean {
+        if (!isConnected()) {
+            return false
         }
 
-    suspend fun ping(): Long? =
-        withContext(Dispatchers.IO) {
+        val commandId =
+            UUID.randomUUID().toString()
 
-            val client =
-                webSocket
+        val json =
+            createMessage(
+                type = "ping",
+                commandId = commandId,
+                payload = JSONObject()
+            )
 
-            if (
-                client == null ||
-                !connected.get() ||
-                !client.isOpen
-            ) {
-                return@withContext null
+        return sendAndWait(
+            json,
+            commandId,
+            RESPONSE_TIMEOUT_MS
+        ) { response ->
+
+            response.optString(
+                "type",
+                ""
+            ) == "pong"
+                    &&
+                    isSuccessfulResponse(
+                        response
+                    )
+        }
+    }
+
+    fun send(
+        command: String
+    ): Boolean {
+
+        if (!isConnected()) {
+            return false
+        }
+
+        return try {
+
+            val json =
+                convertLegacyCommand(
+                    command
+                )
+
+            if (json == null) {
+                Log.e(
+                    TAG,
+                    "Comando inválido: $command"
+                )
+
+                return false
             }
 
-            try {
+            webSocket?.send(
+                json.toString()
+            )
 
-                val commandId =
-                    UUID.randomUUID()
-                        .toString()
+            true
 
-                val message =
-                    JSONObject()
-                        .apply {
+        } catch (e: Exception) {
 
-                            put(
-                                "type",
-                                "ping"
-                            )
+            Log.e(
+                TAG,
+                "Error enviando comando: $command",
+                e
+            )
 
-                            put(
-                                "commandId",
-                                commandId
-                            )
+            false
+        }
+    }
 
-                            put(
-                                "senderId",
-                                "ygsync-controller"
-                            )
+    fun sendAndWait(
+        command: String,
+        timeoutMs: Long = RESPONSE_TIMEOUT_MS
+    ): Boolean {
 
-                            put(
-                                "timestamp",
-                                System.currentTimeMillis()
-                            )
+        if (!isConnected()) {
+            return false
+        }
 
-                            put(
-                                "payload",
-                                JSONObject()
-                            )
-                        }
-                        .toString()
+        return try {
 
-                synchronized(responseLock) {
+            val json =
+                convertLegacyCommand(
+                    command
+                )
 
-                    lastResponse =
-                        null
-                }
+            if (json == null) {
+                return false
+            }
 
-                val startTime =
-                    System.currentTimeMillis()
+            val commandId =
+                json.optString(
+                    "commandId",
+                    ""
+                )
 
-                client.send(message)
+            if (commandId.isEmpty()) {
+                return false
+            }
 
-                val response =
-                    waitForResponse(
-                        commandId,
-                        RESPONSE_TIMEOUT_MS
+            sendAndWait(
+                json,
+                commandId,
+                timeoutMs
+            ) { response ->
+
+                isSuccessfulResponse(
+                    response
+                )
+            }
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Error esperando ACK",
+                e
+            )
+
+            false
+        }
+    }
+
+    fun loadVideoAndWaitReady(
+        videoId: String,
+        timeoutMs: Long = READY_TIMEOUT_MS
+    ): Boolean {
+
+        if (!isConnected()) {
+            return false
+        }
+
+        val cleanVideoId =
+            videoId.trim()
+
+        if (cleanVideoId.isEmpty()) {
+            return false
+        }
+
+        val commandId =
+            UUID.randomUUID().toString()
+
+        val payload =
+            JSONObject()
+
+        payload.put(
+            "videoId",
+            cleanVideoId
+        )
+
+        val json =
+            createMessage(
+                type = "open",
+                commandId = commandId,
+                payload = payload
+            )
+
+        Log.d(
+            TAG,
+            "Solicitando video: $cleanVideoId"
+        )
+
+        return try {
+
+            webSocket?.send(
+                json.toString()
+            )
+
+            waitForResponse(
+                commandId,
+                timeoutMs
+            ) { response ->
+
+                val type =
+                    response.optString(
+                        "type",
+                        ""
                     )
 
-                if (response == null) {
-
-                    /*
-                     * El servidor WebSocket actual todavía
-                     * debe implementar la respuesta "pong".
-                     * No cerramos inmediatamente la conexión
-                     * para permitir la migración progresiva.
-                     */
-                    return@withContext null
+                if (type != "ready") {
+                    return@waitForResponse false
                 }
-
-                val elapsed =
-                    System.currentTimeMillis() -
-                        startTime
 
                 if (
-                    isSuccessfulResponse(
-                        response,
-                        commandId
+                    !isSuccessfulResponse(
+                        response
                     )
                 ) {
-                    elapsed
-                } else {
-                    null
+                    return@waitForResponse false
                 }
 
-            } catch (_: Exception) {
-
-                connected.set(false)
-
-                null
-            }
-        }
-
-    suspend fun send(
-        message: String
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-
-            val client =
-                webSocket
-
-            if (
-                client == null ||
-                !connected.get() ||
-                !client.isOpen
-            ) {
-                return@withContext false
-            }
-
-            try {
-
-                val json =
-                    convertLegacyCommand(
-                        message
+                val responsePayload =
+                    response.optJSONObject(
+                        "payload"
                     )
 
-                client.send(
-                    json.toString()
-                )
+                val responseVideoId =
+                    responsePayload?.optString(
+                        "videoId",
+                        ""
+                    )?.trim()
 
-                true
-
-            } catch (_: Exception) {
-
-                connected.set(false)
-
-                false
+                responseVideoId ==
+                        cleanVideoId
             }
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Error esperando READY de $cleanVideoId",
+                e
+            )
+
+            false
+        }
+    }
+
+    fun getStatus(): JSONObject? {
+
+        if (!isConnected()) {
+            return null
         }
 
-    suspend fun sendJson(
-        message: JSONObject
-    ): Boolean =
-        withContext(Dispatchers.IO) {
+        val commandId =
+            UUID.randomUUID().toString()
 
-            val client =
-                webSocket
+        val json =
+            createMessage(
+                type = "getStatus",
+                commandId = commandId,
+                payload = JSONObject()
+            )
 
-            if (
-                client == null ||
-                !connected.get() ||
-                !client.isOpen
-            ) {
-                return@withContext false
+        return try {
+
+            webSocket?.send(
+                json.toString()
+            )
+
+            waitForResponse(
+                commandId,
+                RESPONSE_TIMEOUT_MS
+            ) { response ->
+
+                response.optString(
+                    "type",
+                    ""
+                ) == "status"
+                        &&
+                        isSuccessfulResponse(
+                            response
+                        )
             }
 
-            try {
+        } catch (e: Exception) {
 
-                client.send(
-                    message.toString()
-                )
+            Log.e(
+                TAG,
+                "Error obteniendo status",
+                e
+            )
 
-                true
-
-            } catch (_: Exception) {
-
-                connected.set(false)
-
-                false
-            }
+            null
         }
+    }
+
+    fun sendJson(
+        json: JSONObject
+    ): Boolean {
+
+        if (!isConnected()) {
+            return false
+        }
+
+        return try {
+
+            webSocket?.send(
+                json.toString()
+            )
+
+            true
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Error enviando JSON",
+                e
+            )
+
+            false
+        }
+    }
 
     fun isConnected(): Boolean {
-
-        val client =
-            webSocket
-
-        return connected.get() &&
-            client != null &&
-            client.isOpen
+        return connected &&
+                webSocket?.isOpen == true
     }
 
     fun disconnect() {
 
-        connected.set(false)
+        connected = false
 
-        val client =
-            webSocket
+        try {
+            webSocket?.close()
+        } catch (_: Exception) {
+        }
 
-        webSocket =
-            null
+        webSocket = null
 
         synchronized(responseLock) {
-
-            lastResponse =
-                null
-
+            responses.clear()
             responseLock.notifyAll()
         }
+    }
+
+    private fun sendAndWait(
+        json: JSONObject,
+        commandId: String,
+        timeoutMs: Long,
+        validator: (JSONObject) -> Boolean
+    ): Boolean {
 
         try {
 
-            client?.close()
+            webSocket?.send(
+                json.toString()
+            )
 
-        } catch (_: Exception) {
+            val response =
+                waitForResponse(
+                    commandId,
+                    timeoutMs,
+                    validator
+                )
+
+            return response != null
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Error sendAndWait",
+                e
+            )
+
+            return false
         }
     }
 
     private fun waitForResponse(
         commandId: String,
-        timeoutMs: Long
-    ): String? {
+        timeoutMs: Long,
+        validator: (JSONObject) -> Boolean
+    ): JSONObject? {
 
-        val deadline =
-            System.currentTimeMillis() +
-                timeoutMs
+        val start =
+            System.currentTimeMillis()
 
         synchronized(responseLock) {
+
+            responses.remove(
+                commandId
+            )
 
             while (true) {
 
                 val response =
-                    lastResponse
+                    responses.remove(
+                        commandId
+                    )
 
                 if (
                     response != null &&
-                    responseContainsCommandId(
-                        response,
-                        commandId
-                    )
+                    validator(response)
                 ) {
                     return response
                 }
 
+                val elapsed =
+                    System.currentTimeMillis()
+                            - start
+
                 val remaining =
-                    deadline -
-                        System.currentTimeMillis()
+                    timeoutMs - elapsed
 
                 if (remaining <= 0) {
                     return null
                 }
 
                 try {
-
                     responseLock.wait(
                         remaining
                     )
-
                 } catch (_: InterruptedException) {
-
-                    Thread.currentThread()
-                        .interrupt()
-
+                    Thread.currentThread().interrupt()
                     return null
                 }
             }
         }
     }
 
-    private fun responseContainsCommandId(
-        response: String,
-        commandId: String
-    ): Boolean {
-
-        return try {
-
-            val json =
-                JSONObject(response)
-
-            json.optString(
-                "commandId",
-                ""
-            ) == commandId
-
-        } catch (_: Exception) {
-
-            false
-        }
-    }
-
-    private fun isSuccessfulResponse(
-        response: String,
-        commandId: String
-    ): Boolean {
-
-        return try {
-
-            val json =
-                JSONObject(response)
-
-            if (
-                json.optString(
-                    "commandId",
-                    ""
-                ) != commandId
-            ) {
-                return false
-            }
-
-            json.optBoolean(
-                "success",
-                json.optJSONObject(
-                    "payload"
-                )?.optBoolean(
-                    "success",
-                    false
-                ) ?: false
-            )
-
-        } catch (_: Exception) {
-
-            false
-        }
-    }
-
     private fun convertLegacyCommand(
         command: String
-    ): JSONObject {
+    ): JSONObject? {
 
-        val cleanCommand =
+        val clean =
             command.trim()
 
+        if (clean.isEmpty()) {
+            return null
+        }
+
         val commandId =
-            UUID.randomUUID()
-                .toString()
+            UUID.randomUUID().toString()
+
+        val parts =
+            clean.split(
+                "|",
+                limit = 2
+            )
+
+        val type =
+            parts[0]
+                .trim()
+                .uppercase()
 
         val payload =
             JSONObject()
 
-        val type =
-            when {
+        when (type) {
 
-                cleanCommand.equals(
-                    "PLAY",
-                    ignoreCase = true
-                ) ->
-                    "play"
-
-                cleanCommand.equals(
-                    "PAUSE",
-                    ignoreCase = true
-                ) ->
-                    "pause"
-
-                cleanCommand.equals(
-                    "STOP",
-                    ignoreCase = true
-                ) ->
-                    "stop"
-
-                cleanCommand.startsWith(
-                    "LOAD_VIDEO|",
-                    ignoreCase = true
-                ) -> {
-
-                    val videoId =
-                        cleanCommand
-                            .substringAfter(
-                                "|"
-                            )
-                            .trim()
-
-                    payload.put(
-                        "videoId",
-                        videoId
-                    )
-
-                    "open"
-                }
-
-                cleanCommand.startsWith(
-                    "SEEK|",
-                    ignoreCase = true
-                ) -> {
-
-                    val position =
-                        cleanCommand
-                            .substringAfter(
-                                "|"
-                            )
-                            .trim()
-                            .toLongOrNull()
-                            ?: 0L
-
-                    payload.put(
-                        "positionMs",
-                        position
-                    )
-
-                    "seek"
-                }
-
-                cleanCommand.startsWith(
-                    "SET_VOLUME|",
-                    ignoreCase = true
-                ) -> {
-
-                    val volume =
-                        cleanCommand
-                            .substringAfter(
-                                "|"
-                            )
-                            .trim()
-                            .toFloatOrNull()
-                            ?: 1f
-
-                    payload.put(
-                        "volume",
-                        volume
-                    )
-
-                    "setVolume"
-                }
-
-                cleanCommand.equals(
-                    "GET_STATUS",
-                    ignoreCase = true
-                ) ->
-                    "getStatus"
-
-                else ->
-                    cleanCommand.lowercase()
+            "PLAY" -> {
+                return createMessage(
+                    "play",
+                    commandId,
+                    payload
+                )
             }
 
-        return JSONObject().apply {
+            "PAUSE" -> {
+                return createMessage(
+                    "pause",
+                    commandId,
+                    payload
+                )
+            }
 
-            put(
-                "type",
-                type
-            )
+            "STOP" -> {
+                return createMessage(
+                    "stop",
+                    commandId,
+                    payload
+                )
+            }
 
-            put(
-                "commandId",
-                commandId
-            )
+            "LOAD_VIDEO" -> {
 
-            put(
-                "senderId",
-                "ygsync-controller"
-            )
+                if (parts.size < 2) {
+                    return null
+                }
 
-            put(
-                "timestamp",
-                System.currentTimeMillis()
-            )
+                val videoId =
+                    parts[1].trim()
 
-            put(
-                "payload",
-                payload
-            )
+                if (videoId.isEmpty()) {
+                    return null
+                }
+
+                payload.put(
+                    "videoId",
+                    videoId
+                )
+
+                return createMessage(
+                    "open",
+                    commandId,
+                    payload
+                )
+            }
+
+            "SEEK" -> {
+
+                if (parts.size < 2) {
+                    return null
+                }
+
+                val position =
+                    parts[1]
+                        .trim()
+                        .toLongOrNull()
+                        ?: return null
+
+                payload.put(
+                    "positionMs",
+                    maxOf(
+                        0L,
+                        position
+                    )
+                )
+
+                return createMessage(
+                    "seek",
+                    commandId,
+                    payload
+                )
+            }
+
+            "SET_VOLUME" -> {
+
+                if (parts.size < 2) {
+                    return null
+                }
+
+                val volume =
+                    parts[1]
+                        .trim()
+                        .toFloatOrNull()
+                        ?: return null
+
+                payload.put(
+                    "volume",
+                    volume.coerceIn(
+                        0f,
+                        1f
+                    )
+                )
+
+                return createMessage(
+                    "setVolume",
+                    commandId,
+                    payload
+                )
+            }
+
+            "GET_STATUS" -> {
+
+                return createMessage(
+                    "getStatus",
+                    commandId,
+                    payload
+                )
+            }
+
+            "NEXT" -> {
+
+                return createMessage(
+                    "next",
+                    commandId,
+                    payload
+                )
+            }
+
+            "PREVIOUS" -> {
+
+                return createMessage(
+                    "previous",
+                    commandId,
+                    payload
+                )
+            }
+
+            else -> {
+                return null
+            }
         }
+    }
+
+    private fun createMessage(
+        type: String,
+        commandId: String,
+        payload: JSONObject
+    ): JSONObject {
+
+        val json =
+            JSONObject()
+
+        json.put(
+            "type",
+            type
+        )
+
+        json.put(
+            "commandId",
+            commandId
+        )
+
+        json.put(
+            "senderId",
+            "ygsync-controller"
+        )
+
+        json.put(
+            "timestamp",
+            System.currentTimeMillis()
+        )
+
+        json.put(
+            "payload",
+            payload
+        )
+
+        return json
+    }
+
+    private fun isSuccessfulResponse(
+        response: JSONObject
+    ): Boolean {
+
+        if (
+            response.optBoolean(
+                "success",
+                false
+            )
+        ) {
+            return true
+        }
+
+        val payload =
+            response.optJSONObject(
+                "payload"
+            )
+
+        return payload?.optBoolean(
+            "success",
+            false
+        ) ?: false
     }
 }
