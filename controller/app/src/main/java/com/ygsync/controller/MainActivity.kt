@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -27,22 +28,34 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,7 +63,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -67,851 +79,732 @@ import kotlinx.coroutines.withContext
 
 private val Blue = Color(0xFF2563EB)
 private val SkyBlue = Color(0xFF38BDF8)
-private val Background = Color(0xFFF5F8FC)
+private val Background = Color(0xFFF4F7FB)
 private val TextDark = Color(0xFF172033)
 private val TextSecondary = Color(0xFF718096)
 private val CardWhite = Color.White
 private val Success = Color(0xFF22C55E)
 private val ErrorRed = Color(0xFFEF4444)
 private val SoftBlue = Color(0xFFEAF2FF)
+private val SoftGreen = Color(0xFFEAFBF0)
+private val SoftRed = Color(0xFFFFF1F2)
+private val Border = Color(0xFFE2E8F0)
 
 class MainActivity : ComponentActivity() {
 
-override fun onCreate(
-    savedInstanceState: Bundle?
-) {
-    super.onCreate(savedInstanceState)
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
+        super.onCreate(savedInstanceState)
 
-    startControllerService()
+        startControllerService()
 
-    setContent {
-        YGSyncApp()
-    }
-}
-
-private fun startControllerService() {
-
-    val intent =
-        Intent(
-            this,
-            ControllerSyncService::class.java
-        ).apply {
-            action =
-                ControllerSyncService.ACTION_START
+        setContent {
+            YGSyncApp()
         }
-
-    try {
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.O
-        ) {
-
-            startForegroundService(
-                intent
-            )
-
-        } else {
-
-            startService(
-                intent
-            )
-        }
-
-    } catch (_: Exception) {
     }
-}
 
+    private fun startControllerService() {
+
+        val intent =
+            Intent(
+                this,
+                ControllerSyncService::class.java
+            ).apply {
+                action =
+                    ControllerSyncService.ACTION_START
+            }
+
+        try {
+
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O
+            ) {
+
+                startForegroundService(intent)
+
+            } else {
+
+                startService(intent)
+            }
+
+        } catch (_: Exception) {
+        }
+    }
 }
 
 @Composable
 fun YGSyncApp() {
 
-val context =
-    LocalContext.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-var service by remember {
-    mutableStateOf(
-        ControllerSyncService.getInstance()
-    )
-}
-
-/*
- * El servicio puede tardar unos milisegundos
- * en crearse después de iniciar la Activity.
- *
- * Esperamos hasta que exista para que la
- * interfaz pueda observar sus estados.
- */
-LaunchedEffect(Unit) {
-
-    repeat(20) {
-
-        val current =
-            ControllerSyncService
-                .getInstance()
-
-        if (current != null) {
-
-            service =
-                current
-
-            return@LaunchedEffect
-        }
-
-        delay(100)
-    }
-}
-
-val receiverState =
-    if (service != null) {
-
-        service!!
-            .receiverList
-            .collectAsState()
-
-    } else {
-
-        remember {
-            mutableStateOf(
-                emptyList<Receiver>()
-            )
-        }
+    var service by remember {
+        mutableStateOf(
+            ControllerSyncService.getInstance()
+        )
     }
 
-val connectionState =
-    if (service != null) {
+    LaunchedEffect(Unit) {
 
-        service!!
-            .connectionStates
-            .collectAsState()
+        repeat(30) {
 
-    } else {
+            val current =
+                ControllerSyncService.getInstance()
 
-        remember {
-            mutableStateOf(
-                emptyMap<String, Boolean>()
-            )
-        }
-    }
+            if (current != null) {
 
-val latencyState =
-    if (service != null) {
+                service =
+                    current
 
-        service!!
-            .latencies
-            .collectAsState()
-
-    } else {
-
-        remember {
-            mutableStateOf(
-                emptyMap<String, Long>()
-            )
-        }
-    }
-
-val serviceDiagnostic =
-    if (service != null) {
-
-        service!!
-            .diagnostic
-            .collectAsState()
-
-    } else {
-
-        remember {
-            mutableStateOf(
-                "Iniciando servicio..."
-            )
-        }
-    }
-
-var discovering by remember {
-    mutableStateOf(false)
-}
-
-var discoveryError by remember {
-    mutableStateOf(false)
-}
-
-var manualIp by remember {
-    mutableStateOf("")
-}
-
-var manualConnecting by remember {
-    mutableStateOf(false)
-}
-
-var videoId by remember {
-    mutableStateOf("")
-}
-
-var currentVideo by remember {
-    mutableStateOf("")
-}
-
-var commandRunning by remember {
-    mutableStateOf(false)
-}
-
-val discovery =
-    remember(context) {
-        ReceiverDiscovery(context)
-    }
-
-fun startDiscovery() {
-
-    discovering =
-        true
-
-    discoveryError =
-        false
-
-    val syncService =
-        ControllerSyncService
-            .getInstance()
-
-    if (syncService == null) {
-
-        discovering =
-            false
-
-        discoveryError =
-            true
-
-        return
-    }
-
-    val wifiManager =
-        context.applicationContext
-            .getSystemService(
-                Context.WIFI_SERVICE
-            ) as WifiManager
-
-    CoroutineScope(
-        Dispatchers.Main.immediate
-    ).launch {
-
-        var multicastLock:
-            WifiManager.MulticastLock? =
-            null
-
-        try {
-
-            multicastLock =
-                wifiManager
-                    .createMulticastLock(
-                        "YGSyncDiscovery"
-                    )
-
-            multicastLock
-                .setReferenceCounted(
-                    false
-                )
-
-            multicastLock.acquire()
-
-            withContext(
-                Dispatchers.IO
-            ) {
-
-                discovery
-                    .discoverReceivers()
-                    .collect { receiver ->
-
-                        withContext(
-                            Dispatchers.Main
-                        ) {
-
-                            syncService
-                                .registerReceiver(
-                                    receiver
-                                )
-
-                            discovering =
-                                false
-
-                            discoveryError =
-                                false
-                        }
-                    }
+                return@LaunchedEffect
             }
 
-        } catch (_: Exception) {
+            delay(100)
+        }
+    }
 
-            discovering =
-                false
+    val receiverState =
+        if (service != null) {
 
-            discoveryError =
-                true
+            service!!
+                .receiverList
+                .collectAsState()
 
-        } finally {
+        } else {
+
+            remember {
+                mutableStateOf(
+                    emptyList<Receiver>()
+                )
+            }
+        }
+
+    val connectionState =
+        if (service != null) {
+
+            service!!
+                .connectionStates
+                .collectAsState()
+
+        } else {
+
+            remember {
+                mutableStateOf(
+                    emptyMap<String, Boolean>()
+                )
+            }
+        }
+
+    val latencyState =
+        if (service != null) {
+
+            service!!
+                .latencies
+                .collectAsState()
+
+        } else {
+
+            remember {
+                mutableStateOf(
+                    emptyMap<String, Long>()
+                )
+            }
+        }
+
+    val serviceDiagnostic =
+        if (service != null) {
+
+            service!!
+                .diagnostic
+                .collectAsState()
+
+        } else {
+
+            remember {
+                mutableStateOf(
+                    "Iniciando servicio..."
+                )
+            }
+        }
+
+    var discovering by remember {
+        mutableStateOf(false)
+    }
+
+    var discoveryError by remember {
+        mutableStateOf(false)
+    }
+
+    var manualIp by remember {
+        mutableStateOf("")
+    }
+
+    var manualConnecting by remember {
+        mutableStateOf(false)
+    }
+
+    var videoId by remember {
+        mutableStateOf("")
+    }
+
+    var currentVideo by remember {
+        mutableStateOf("")
+    }
+
+    var commandRunning by remember {
+        mutableStateOf(false)
+    }
+
+    var globalVolume by remember {
+        mutableFloatStateOf(1.0f)
+    }
+
+    var muted by remember {
+        mutableStateOf(false)
+    }
+
+    val discovery =
+        remember(context) {
+            ReceiverDiscovery(context)
+        }
+
+    fun startDiscovery() {
+
+        discovering = true
+        discoveryError = false
+
+        val syncService =
+            ControllerSyncService.getInstance()
+
+        if (syncService == null) {
+
+            discovering = false
+            discoveryError = true
+            return
+        }
+
+        val wifiManager =
+            context.applicationContext
+                .getSystemService(
+                    Context.WIFI_SERVICE
+                ) as WifiManager
+
+        CoroutineScope(
+            Dispatchers.Main.immediate
+        ).launch {
+
+            var multicastLock:
+                WifiManager.MulticastLock? =
+                null
 
             try {
 
-                if (
-                    multicastLock
-                        ?.isHeld == true
-                ) {
+                multicastLock =
+                    wifiManager
+                        .createMulticastLock(
+                            "YGSyncDiscovery"
+                        )
 
-                    multicastLock
-                        .release()
+                multicastLock
+                    .setReferenceCounted(false)
+
+                multicastLock.acquire()
+
+                withContext(Dispatchers.IO) {
+
+                    discovery
+                        .discoverReceivers()
+                        .collect { receiver ->
+
+                            withContext(
+                                Dispatchers.Main
+                            ) {
+
+                                syncService
+                                    .registerReceiver(
+                                        receiver
+                                    )
+
+                                discovering = false
+                                discoveryError = false
+                            }
+                        }
                 }
 
             } catch (_: Exception) {
+
+                discovering = false
+                discoveryError = true
+
+            } finally {
+
+                try {
+
+                    if (
+                        multicastLock
+                            ?.isHeld == true
+                    ) {
+                        multicastLock.release()
+                    }
+
+                } catch (_: Exception) {
+                }
             }
         }
     }
-}
 
-fun connectManual() {
+    fun connectManual() {
 
-    val ip =
-        manualIp.trim()
+        val ip =
+            manualIp.trim()
 
-    if (ip.isBlank()) {
-        return
-    }
+        if (ip.isBlank()) return
+        if (manualConnecting) return
 
-    if (manualConnecting) {
-        return
-    }
+        val syncService =
+            ControllerSyncService.getInstance()
+                ?: return
 
-    val syncService =
-        ControllerSyncService
-            .getInstance()
+        manualConnecting = true
 
-    if (syncService == null) {
-        return
-    }
+        val receiver =
+            Receiver(
+                id = "$ip:8765",
+                name = "Fire TV",
+                address = ip,
+                port = 8765
+            )
 
-    manualConnecting =
-        true
+        syncService.registerReceiver(receiver)
 
-    val receiver =
-        Receiver(
-            id = "$ip:8765",
-            name = "Fire TV",
-            address = ip,
-            port = 8765
-        )
+        CoroutineScope(
+            Dispatchers.Main.immediate
+        ).launch {
 
-    syncService.registerReceiver(
-        receiver
-    )
+            delay(1200)
 
-    CoroutineScope(
-        Dispatchers.Main.immediate
-    ).launch {
-
-        delay(1000)
-
-        manualConnecting =
-            false
-    }
-}
-
-fun sendCommand(
-    command: String,
-    successMessage: String
-) {
-
-    if (commandRunning) {
-        return
-    }
-
-    val syncService =
-        ControllerSyncService
-            .getInstance()
-
-    if (syncService == null) {
-
-        return
-    }
-
-    commandRunning =
-        true
-
-    syncService.sendCommandAsync(
-        command
-    ) { success, total ->
-
-        commandRunning =
-            false
-
-        if (total == 0) {
-
-            return@sendCommandAsync
+            manualConnecting = false
         }
+    }
+
+    fun sendCommand(
+        command: String
+    ) {
+
+        if (commandRunning) return
+
+        val syncService =
+            ControllerSyncService.getInstance()
+                ?: return
+
+        commandRunning = true
+
+        syncService.sendCommandAsync(
+            command
+        ) { _, _ ->
+
+            commandRunning = false
+        }
+    }
+
+    fun sendIndividualCommand(
+        receiver: Receiver,
+        command: String
+    ) {
+
+        val syncService =
+            ControllerSyncService.getInstance()
+                ?: return
+
+        CoroutineScope(
+            Dispatchers.Main.immediate
+        ).launch {
+
+            withContext(Dispatchers.IO) {
+
+                syncService.sendCommand(
+                    receiver.id,
+                    command
+                )
+            }
+        }
+    }
+
+    fun loadVideo() {
+
+        var cleanVideoId =
+            videoId.trim()
+
+        if (cleanVideoId.isBlank()) return
 
         /*
-         * La conexión permanece en el
-         * ControllerSyncService.
-         *
-         * La Activity solo actualiza
-         * la interfaz.
+         * Permite pegar tanto el ID como una URL
+         * normal de YouTube.
          */
-    }
-}
+        cleanVideoId =
+            when {
 
-fun loadVideo() {
+                cleanVideoId.contains(
+                    "youtu.be/"
+                ) ->
+                    cleanVideoId
+                        .substringAfter("youtu.be/")
+                        .substringBefore("?")
+                        .substringBefore("&")
 
-    val cleanVideoId =
-        videoId.trim()
+                cleanVideoId.contains(
+                    "watch?v="
+                ) ->
+                    cleanVideoId
+                        .substringAfter("watch?v=")
+                        .substringBefore("&")
 
-    if (cleanVideoId.isBlank()) {
-        return
-    }
-
-    currentVideo =
-        cleanVideoId
-
-    sendCommand(
-        command =
-            "LOAD_VIDEO|$cleanVideoId",
-        successMessage =
-            "Video enviado"
-    )
-}
-
-/*
- * Primera búsqueda automática.
- */
-LaunchedEffect(
-    service
-) {
-
-    if (service == null) {
-        return@LaunchedEffect
-    }
-
-    delay(300)
-
-    if (
-        service!!
-            .receiverList
-            .value
-            .isEmpty()
-    ) {
-
-        startDiscovery()
-    }
-}
-
-Surface(
-    modifier =
-        Modifier.fillMaxSize(),
-    color =
-        Background
-) {
-
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(24.dp)
-    ) {
-
-        Header()
-
-        Spacer(
-            modifier =
-                Modifier.height(20.dp)
-        )
-
-        ManualConnectionCard(
-            ip =
-                manualIp,
-            onIpChange = {
-                manualIp =
-                    it
-            },
-            onConnect = {
-                connectManual()
-            },
-            connecting =
-                manualConnecting
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(20.dp)
-        )
-
-        ConnectionSummary(
-            receiverCount =
-                receiverState.value.size,
-            connectedCount =
-                connectionState.value
-                    .values
-                    .count { it },
-            discovering =
-                discovering
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(20.dp)
-        )
-
-        NowPlayingCard(
-            videoId =
-                videoId,
-            currentVideo =
-                currentVideo,
-            onVideoIdChange = {
-                videoId =
-                    it
-            },
-            onLoad = {
-                loadVideo()
-            },
-            onPlay = {
-                sendCommand(
-                    command =
-                        "PLAY",
-                    successMessage =
-                        "PLAY enviado"
-                )
-            },
-            onPause = {
-                sendCommand(
-                    command =
-                        "PAUSE",
-                    successMessage =
-                        "PAUSE enviado"
-                )
-            },
-            onStop = {
-                sendCommand(
-                    command =
-                        "STOP",
-                    successMessage =
-                        "STOP enviado"
-                )
-            },
-            commandRunning =
-                commandRunning
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(24.dp)
-        )
-
-        SectionHeader(
-            title =
-                "Pantallas",
-            action =
-                if (discovering) {
-                    "Buscando..."
-                } else {
-                    "Actualizar"
-                },
-            onClick = {
-                startDiscovery()
+                else ->
+                    cleanVideoId
             }
+
+        currentVideo = cleanVideoId
+        videoId = cleanVideoId
+
+        val syncService =
+            ControllerSyncService.getInstance()
+                ?: return
+
+        commandRunning = true
+
+        CoroutineScope(
+            Dispatchers.Main.immediate
+        ).launch {
+
+            val ready =
+                syncService
+                    .loadVideoAndWaitReady(
+                        cleanVideoId
+                    )
+
+            commandRunning = false
+
+            if (ready) {
+
+                /*
+                 * Todas las pantallas confirmaron
+                 * READY.
+                 */
+                currentVideo = cleanVideoId
+            }
+        }
+    }
+
+    fun setGlobalVolume(
+        value: Float
+    ) {
+
+        globalVolume =
+            value.coerceIn(0f, 1f)
+
+        muted =
+            globalVolume <= 0f
+
+        val volume =
+            if (muted) {
+                0f
+            } else {
+                globalVolume
+            }
+
+        sendCommand(
+            "SET_VOLUME|$volume"
         )
+    }
 
-        Spacer(
-            modifier =
-                Modifier.height(12.dp)
-        )
+    fun toggleMute() {
 
-        DiagnosticCard(
-            message =
-                serviceDiagnostic.value,
-            isError =
-                discoveryError
-        )
+        if (muted) {
 
-        Spacer(
-            modifier =
-                Modifier.height(14.dp)
-        )
+            muted = false
 
-        if (
-            receiverState.value.isEmpty()
-        ) {
-
-            EmptyState(
-                discovering =
-                    discovering,
-                onRefresh = {
-                    startDiscovery()
+            setGlobalVolume(
+                if (globalVolume <= 0f) {
+                    1f
+                } else {
+                    globalVolume
                 }
             )
 
         } else {
 
-            LazyColumn(
+            muted = true
+
+            sendCommand(
+                "SET_VOLUME|0.0"
+            )
+        }
+    }
+
+    fun syncAll() {
+
+        sendCommand("SYNC")
+    }
+
+    LaunchedEffect(service) {
+
+        if (service == null) return@LaunchedEffect
+
+        delay(300)
+
+        if (
+            service!!
+                .receiverList
+                .value
+                .isEmpty()
+        ) {
+            startDiscovery()
+        }
+    }
+
+    Surface(
+        modifier =
+            Modifier.fillMaxSize(),
+        color =
+            Background
+    ) {
+
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(
+                        horizontal = 20.dp,
+                        vertical = 18.dp
+                    )
+        ) {
+
+            Header()
+
+            Spacer(
                 modifier =
-                    Modifier.fillMaxWidth(),
-                verticalArrangement =
-                    Arrangement.spacedBy(12.dp)
+                    Modifier.height(18.dp)
+            )
+
+            ManualConnectionCard(
+                ip = manualIp,
+                onIpChange = {
+                    manualIp = it
+                },
+                onConnect = {
+                    connectManual()
+                },
+                connecting =
+                    manualConnecting
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(14.dp)
+            )
+
+            ConnectionSummary(
+                receiverCount =
+                    receiverState.value.size,
+                connectedCount =
+                    connectionState.value
+                        .values
+                        .count { it },
+                discovering =
+                    discovering
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(14.dp)
+            )
+
+            GlobalControlCard(
+                commandRunning =
+                    commandRunning,
+                volume =
+                    globalVolume,
+                muted =
+                    muted,
+                onPlay = {
+                    sendCommand("PLAY")
+                },
+                onPause = {
+                    sendCommand("PAUSE")
+                },
+                onStop = {
+                    sendCommand("STOP")
+                },
+                onPrevious = {
+                    sendCommand("PREVIOUS")
+                },
+                onNext = {
+                    sendCommand("NEXT")
+                },
+                onSync = {
+                    syncAll()
+                },
+                onVolumeChange = {
+                    setGlobalVolume(it)
+                },
+                onMute = {
+                    toggleMute()
+                }
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(14.dp)
+            )
+
+            NowPlayingCard(
+                videoId =
+                    videoId,
+                currentVideo =
+                    currentVideo,
+                onVideoIdChange = {
+                    videoId = it
+                },
+                onLoad = {
+                    loadVideo()
+                },
+                commandRunning =
+                    commandRunning
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(18.dp)
+            )
+
+            SectionHeader(
+                title =
+                    "Pantallas",
+                action =
+                    if (discovering) {
+                        "Buscando..."
+                    } else {
+                        "Actualizar"
+                    },
+                onClick = {
+                    startDiscovery()
+                }
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(10.dp)
+            )
+
+            DiagnosticCard(
+                message =
+                    serviceDiagnostic.value,
+                isError =
+                    discoveryError
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(12.dp)
+            )
+
+            if (
+                receiverState.value.isEmpty()
             ) {
 
-                items(
-                    items =
-                        receiverState.value,
-                    key = {
-                        it.id
+                EmptyState(
+                    discovering =
+                        discovering,
+                    onRefresh = {
+                        startDiscovery()
                     }
-                ) { receiver ->
+                )
 
-                    ScreenCard(
-                        receiver =
-                            receiver,
-                        connected =
-                            connectionState
-                                .value[
-                                    receiver.id
-                                ] == true,
-                        latency =
-                            latencyState
-                                .value[
-                                    receiver.id
-                                ]
-                    )
-                }
+            } else {
 
-                item {
-                    AddScreenButton()
+                LazyColumn(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    verticalArrangement =
+                        Arrangement.spacedBy(10.dp)
+                ) {
+
+                    items(
+                        items =
+                            receiverState.value,
+                        key = {
+                            it.id
+                        }
+                    ) { receiver ->
+
+                        ScreenCard(
+                            receiver =
+                                receiver,
+                            connected =
+                                connectionState
+                                    .value[
+                                        receiver.id
+                                    ] == true,
+                            latency =
+                                latencyState
+                                    .value[
+                                        receiver.id
+                                    ],
+                            onPlay = {
+                                sendIndividualCommand(
+                                    receiver,
+                                    "PLAY"
+                                )
+                            },
+                            onPause = {
+                                sendIndividualCommand(
+                                    receiver,
+                                    "PAUSE"
+                                )
+                            },
+                            onStop = {
+                                sendIndividualCommand(
+                                    receiver,
+                                    "STOP"
+                                )
+                            },
+                            onPrevious = {
+                                sendIndividualCommand(
+                                    receiver,
+                                    "PREVIOUS"
+                                )
+                            },
+                            onNext = {
+                                sendIndividualCommand(
+                                    receiver,
+                                    "NEXT"
+                                )
+                            },
+                            onMute = {
+                                sendIndividualCommand(
+                                    receiver,
+                                    "SET_VOLUME|0.0"
+                                )
+                            }
+                        )
+                    }
+
+                    item {
+                        AddScreenButton()
+                    }
                 }
             }
         }
     }
 }
 
-}
-
 @Composable
 fun Header() {
 
-Row(
-    modifier =
-        Modifier.fillMaxWidth(),
-    verticalAlignment =
-        Alignment.CenterVertically
-) {
-
-    Box(
-        modifier =
-            Modifier
-                .size(52.dp)
-                .background(
-                    brush =
-                        Brush.linearGradient(
-                            colors =
-                                listOf(
-                                    Blue,
-                                    SkyBlue
-                                )
-                        ),
-                    shape =
-                        RoundedCornerShape(
-                            16.dp
-                        )
-                ),
-        contentAlignment =
-            Alignment.Center
-    ) {
-
-        Icon(
-            imageVector =
-                Icons.Default.Devices,
-            contentDescription =
-                null,
-            tint =
-                Color.White,
-            modifier =
-                Modifier.size(28.dp)
-        )
-    }
-
-    Spacer(
-        modifier =
-            Modifier.size(14.dp)
-    )
-
-    Column {
-
-        Text(
-            text =
-                "YG Sync",
-            fontSize =
-                27.sp,
-            fontWeight =
-                FontWeight.Bold,
-            color =
-                TextDark
-        )
-
-        Text(
-            text =
-                "Control Center",
-            fontSize =
-                14.sp,
-            color =
-                TextSecondary
-        )
-    }
-}
-
-}
-
-@Composable
-fun ManualConnectionCard(
-ip: String,
-onIpChange: (String) -> Unit,
-onConnect: () -> Unit,
-connecting: Boolean
-) {
-
-Surface(
-    modifier =
-        Modifier.fillMaxWidth(),
-    shape =
-        RoundedCornerShape(22.dp),
-    color =
-        CardWhite,
-    shadowElevation =
-        3.dp
-) {
-
-    Column(
-        modifier =
-            Modifier.padding(20.dp)
-    ) {
-
-        Text(
-            text =
-                "CONEXIÓN DIRECTA",
-            fontSize =
-                12.sp,
-            fontWeight =
-                FontWeight.Bold,
-            color =
-                Blue
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(6.dp)
-        )
-
-        Text(
-            text =
-                "Probar conexión con Fire TV",
-            fontSize =
-                17.sp,
-            fontWeight =
-                FontWeight.Bold,
-            color =
-                TextDark
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(12.dp)
-        )
-
-        OutlinedTextField(
-            value =
-                ip,
-            onValueChange =
-                onIpChange,
-            modifier =
-                Modifier.fillMaxWidth(),
-            singleLine =
-                true,
-            label = {
-                Text("Dirección IP")
-            },
-            placeholder = {
-                Text("192.168.100.15")
-            },
-            keyboardOptions =
-                KeyboardOptions(
-                    keyboardType =
-                        KeyboardType.Uri
-                )
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(12.dp)
-        )
-
-        Button(
-            onClick =
-                onConnect,
-            modifier =
-                Modifier.fillMaxWidth(),
-            enabled =
-                !connecting,
-            colors =
-                ButtonDefaults
-                    .buttonColors(
-                        containerColor =
-                            Blue
-                    ),
-            shape =
-                RoundedCornerShape(
-                    14.dp
-                )
-        ) {
-
-            Text(
-                text =
-                    if (connecting) {
-                        "Conectando..."
-                    } else {
-                        "Conectar y probar PING"
-                    }
-            )
-        }
-
-        Spacer(
-            modifier =
-                Modifier.height(8.dp)
-        )
-
-        Text(
-            text =
-                "Puerto automático: 8765",
-            fontSize =
-                12.sp,
-            color =
-                TextSecondary
-        )
-    }
-}
-
-}
-
-@Composable
-fun ConnectionSummary(
-receiverCount: Int,
-connectedCount: Int,
-discovering: Boolean
-) {
-
-Surface(
-    modifier =
-        Modifier.fillMaxWidth(),
-    shape =
-        RoundedCornerShape(22.dp),
-    color =
-        CardWhite,
-    shadowElevation =
-        3.dp
-) {
-
     Row(
         modifier =
-            Modifier.padding(20.dp),
+            Modifier.fillMaxWidth(),
         verticalAlignment =
             Alignment.CenterVertically
     ) {
@@ -919,12 +812,20 @@ Surface(
         Box(
             modifier =
                 Modifier
-                    .size(48.dp)
+                    .size(54.dp)
                     .background(
-                        color =
-                            SoftBlue,
+                        brush =
+                            Brush.linearGradient(
+                                colors =
+                                    listOf(
+                                        Blue,
+                                        SkyBlue
+                                    )
+                            ),
                         shape =
-                            CircleShape
+                            RoundedCornerShape(
+                                17.dp
+                            )
                     ),
             contentAlignment =
                 Alignment.Center
@@ -932,32 +833,31 @@ Surface(
 
             Icon(
                 imageVector =
-                    Icons.Default.Wifi,
+                    Icons.Default.Devices,
                 contentDescription =
                     null,
                 tint =
-                    Blue,
+                    Color.White,
                 modifier =
-                    Modifier.size(25.dp)
+                    Modifier.size(29.dp)
             )
         }
 
         Spacer(
             modifier =
-                Modifier.size(14.dp)
+                Modifier.width(13.dp)
         )
 
-        Column {
+        Column(
+            modifier =
+                Modifier.weight(1f)
+        ) {
 
             Text(
                 text =
-                    if (discovering) {
-                        "Buscando pantallas"
-                    } else {
-                        "Red local"
-                    },
+                    "YG Sync",
                 fontSize =
-                    16.sp,
+                    28.sp,
                 fontWeight =
                     FontWeight.Bold,
                 color =
@@ -966,13 +866,204 @@ Surface(
 
             Text(
                 text =
-                    if (discovering) {
-                        "Explorando la red local..."
-                    } else {
-                        "$connectedCount de $receiverCount conectadas"
-                    },
+                    "Control Center",
                 fontSize =
                     13.sp,
+                color =
+                    TextSecondary
+            )
+        }
+
+        Box(
+            modifier =
+                Modifier
+                    .background(
+                        color =
+                            SoftGreen,
+                        shape =
+                            RoundedCornerShape(
+                                12.dp
+                            )
+                    )
+                    .padding(
+                        horizontal = 10.dp,
+                        vertical = 7.dp
+                    )
+        ) {
+
+            Text(
+                text =
+                    "MASTER",
+                fontSize =
+                    10.sp,
+                fontWeight =
+                    FontWeight.Bold,
+                color =
+                    Success
+            )
+        }
+    }
+}
+
+@Composable
+fun ManualConnectionCard(
+    ip: String,
+    onIpChange: (String) -> Unit,
+    onConnect: () -> Unit,
+    connecting: Boolean
+) {
+
+    Surface(
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(22.dp),
+        color =
+            CardWhite,
+        shadowElevation =
+            3.dp
+    ) {
+
+        Column(
+            modifier =
+                Modifier.padding(18.dp)
+        ) {
+
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                Box(
+                    modifier =
+                        Modifier
+                            .size(38.dp)
+                            .background(
+                                color =
+                                    SoftBlue,
+                                shape =
+                                    CircleShape
+                            ),
+                    contentAlignment =
+                        Alignment.Center
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.Wifi,
+                        contentDescription =
+                            null,
+                        tint =
+                            Blue,
+                        modifier =
+                            Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(
+                    modifier =
+                        Modifier.width(10.dp)
+                )
+
+                Column {
+
+                    Text(
+                        text =
+                            "Conexión directa",
+                        fontSize =
+                            16.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            TextDark
+                    )
+
+                    Text(
+                        text =
+                            "Agregar una pantalla por IP",
+                        fontSize =
+                            12.sp,
+                        color =
+                            TextSecondary
+                    )
+                }
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(12.dp)
+            )
+
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                OutlinedTextField(
+                    value =
+                        ip,
+                    onValueChange =
+                        onIpChange,
+                    modifier =
+                        Modifier.weight(1f),
+                    singleLine =
+                        true,
+                    label = {
+                        Text("IP")
+                    },
+                    placeholder = {
+                        Text("192.168.1.20")
+                    },
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType =
+                                KeyboardType.Uri
+                        )
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.width(8.dp)
+                )
+
+                Button(
+                    onClick =
+                        onConnect,
+                    enabled =
+                        !connecting &&
+                                ip.isNotBlank(),
+                    modifier =
+                        Modifier.height(56.dp),
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor =
+                                Blue
+                        ),
+                    shape =
+                        RoundedCornerShape(14.dp)
+                ) {
+
+                    Text(
+                        text =
+                            if (connecting) {
+                                "..."
+                            } else {
+                                "Conectar"
+                            }
+                    )
+                }
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(7.dp)
+            )
+
+            Text(
+                text =
+                    "Puerto YG Sync: 8765",
+                fontSize =
+                    11.sp,
                 color =
                     TextSecondary
             )
@@ -980,552 +1071,912 @@ Surface(
     }
 }
 
-}
-
 @Composable
-fun NowPlayingCard(
-videoId: String,
-currentVideo: String,
-onVideoIdChange: (String) -> Unit,
-onLoad: () -> Unit,
-onPlay: () -> Unit,
-onPause: () -> Unit,
-onStop: () -> Unit,
-commandRunning: Boolean
+fun ConnectionSummary(
+    receiverCount: Int,
+    connectedCount: Int,
+    discovering: Boolean
 ) {
 
-Surface(
-    modifier =
-        Modifier.fillMaxWidth(),
-    shape =
-        RoundedCornerShape(24.dp),
-    color =
-        CardWhite,
-    shadowElevation =
-        3.dp
-) {
-
-    Column(
+    Surface(
         modifier =
-            Modifier.padding(22.dp)
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(20.dp),
+        color =
+            CardWhite,
+        shadowElevation =
+            2.dp
     ) {
 
         Row(
+            modifier =
+                Modifier.padding(17.dp),
             verticalAlignment =
                 Alignment.CenterVertically
         ) {
 
-            Icon(
-                imageVector =
-                    Icons.Default.VideoLibrary,
-                contentDescription =
-                    null,
-                tint =
-                    Blue,
+            Box(
                 modifier =
-                    Modifier.size(22.dp)
-            )
+                    Modifier
+                        .size(46.dp)
+                        .background(
+                            color =
+                                SoftBlue,
+                            shape =
+                                CircleShape
+                        ),
+                contentAlignment =
+                    Alignment.Center
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.Devices,
+                    contentDescription =
+                        null,
+                    tint =
+                        Blue,
+                    modifier =
+                        Modifier.size(24.dp)
+                )
+            }
 
             Spacer(
                 modifier =
-                    Modifier.size(8.dp)
+                    Modifier.width(12.dp)
             )
 
-            Text(
-                text =
-                    "CONTROL DE REPRODUCCIÓN",
-                fontSize =
-                    12.sp,
-                fontWeight =
-                    FontWeight.Bold,
-                color =
-                    Blue
-            )
-        }
-
-        Spacer(
-            modifier =
-                Modifier.height(8.dp)
-        )
-
-        Text(
-            text =
-                if (currentVideo.isBlank()) {
-                    "Selecciona un video de YouTube"
-                } else {
-                    "Video cargado: $currentVideo"
-                },
-            fontSize =
-                18.sp,
-            fontWeight =
-                FontWeight.Bold,
-            color =
-                TextDark
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(12.dp)
-        )
-
-        OutlinedTextField(
-            value =
-                videoId,
-            onValueChange =
-                onVideoIdChange,
-            modifier =
-                Modifier.fillMaxWidth(),
-            singleLine =
-                true,
-            enabled =
-                !commandRunning,
-            label = {
-                Text(
-                    "ID del video de YouTube"
-                )
-            },
-            placeholder = {
-                Text(
-                    "Ejemplo: dQw4w9WgXcQ"
-                )
-            },
-            keyboardOptions =
-                KeyboardOptions(
-                    keyboardType =
-                        KeyboardType.Ascii
-                )
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(12.dp)
-        )
-
-        Button(
-            onClick =
-                onLoad,
-            modifier =
-                Modifier.fillMaxWidth(),
-            enabled =
-                !commandRunning &&
-                        videoId.isNotBlank(),
-            colors =
-                ButtonDefaults
-                    .buttonColors(
-                        containerColor =
-                            Blue
-                    ),
-            shape =
-                RoundedCornerShape(
-                    14.dp
-                )
-        ) {
-
-            Icon(
-                imageVector =
-                    Icons.Default.VideoLibrary,
-                contentDescription =
-                    null
-            )
-
-            Spacer(
+            Column(
                 modifier =
-                    Modifier.size(8.dp)
-            )
-
-            Text(
-                text =
-                    if (commandRunning) {
-                        "Enviando..."
-                    } else {
-                        "Cargar video en pantallas"
-                    }
-            )
-        }
-
-        Spacer(
-            modifier =
-                Modifier.height(10.dp)
-        )
-
-        Row(
-            modifier =
-                Modifier.fillMaxWidth(),
-            horizontalArrangement =
-                Arrangement.spacedBy(8.dp)
-        ) {
-
-            Button(
-                onClick =
-                    onPlay,
-                modifier =
-                    Modifier.weight(1f),
-                enabled =
-                    !commandRunning,
-                colors =
-                    ButtonDefaults
-                        .buttonColors(
-                            containerColor =
-                                Success
-                        ),
-                shape =
-                    RoundedCornerShape(
-                        14.dp
-                    )
+                    Modifier.weight(1f)
             ) {
 
-                Icon(
-                    imageVector =
-                        Icons.Default.PlayArrow,
-                    contentDescription =
-                        null
+                Text(
+                    text =
+                        "Pantallas conectadas",
+                    fontSize =
+                        15.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        TextDark
                 )
 
-                Spacer(
-                    modifier =
-                        Modifier.size(4.dp)
+                Text(
+                    text =
+                        if (discovering) {
+                            "Buscando en la red local..."
+                        } else {
+                            "$connectedCount / $receiverCount activas"
+                        },
+                    fontSize =
+                        12.sp,
+                    color =
+                        TextSecondary
                 )
-
-                Text("Play")
             }
 
-            Button(
-                onClick =
-                    onPause,
+            Box(
                 modifier =
-                    Modifier.weight(1f),
-                enabled =
-                    !commandRunning,
-                colors =
-                    ButtonDefaults
-                        .buttonColors(
-                            containerColor =
-                                Blue
-                        ),
-                shape =
-                    RoundedCornerShape(
-                        14.dp
-                    )
+                    Modifier
+                        .background(
+                            color =
+                                if (
+                                    connectedCount > 0
+                                ) {
+                                    SoftGreen
+                                } else {
+                                    SoftRed
+                                },
+                            shape =
+                                RoundedCornerShape(
+                                    12.dp
+                                )
+                        )
+                        .padding(
+                            horizontal = 10.dp,
+                            vertical = 7.dp
+                        )
             ) {
 
-                Icon(
-                    imageVector =
-                        Icons.Default.Pause,
-                    contentDescription =
-                        null
+                Text(
+                    text =
+                        if (
+                            connectedCount > 0
+                        ) {
+                            "ONLINE"
+                        } else {
+                            "OFFLINE"
+                        },
+                    fontSize =
+                        10.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        if (
+                            connectedCount > 0
+                        ) {
+                            Success
+                        } else {
+                            ErrorRed
+                        }
                 )
-
-                Spacer(
-                    modifier =
-                        Modifier.size(4.dp)
-                )
-
-                Text("Pausa")
-            }
-
-            Button(
-                onClick =
-                    onStop,
-                modifier =
-                    Modifier.weight(1f),
-                enabled =
-                    !commandRunning,
-                colors =
-                    ButtonDefaults
-                        .buttonColors(
-                            containerColor =
-                                ErrorRed
-                        ),
-                shape =
-                    RoundedCornerShape(
-                        14.dp
-                    )
-            ) {
-
-                Icon(
-                    imageVector =
-                        Icons.Default.Stop,
-                    contentDescription =
-                        null
-                )
-
-                Spacer(
-                    modifier =
-                        Modifier.size(4.dp)
-                )
-
-                Text("Stop")
             }
         }
     }
 }
 
+@Composable
+fun GlobalControlCard(
+    commandRunning: Boolean,
+    volume: Float,
+    muted: Boolean,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onStop: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSync: () -> Unit,
+    onVolumeChange: (Float) -> Unit,
+    onMute: () -> Unit
+) {
+
+    Surface(
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(24.dp),
+        color =
+            CardWhite,
+        shadowElevation =
+            4.dp
+    ) {
+
+        Column(
+            modifier =
+                Modifier.padding(19.dp)
+        ) {
+
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                Column(
+                    modifier =
+                        Modifier.weight(1f)
+                ) {
+
+                    Text(
+                        text =
+                            "CONTROL GLOBAL",
+                        fontSize =
+                            11.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            Blue
+                    )
+
+                    Text(
+                        text =
+                            "Todas las pantallas",
+                        fontSize =
+                            18.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            TextDark
+                    )
+                }
+
+                Icon(
+                    imageVector =
+                        Icons.Default.Sync,
+                    contentDescription =
+                        null,
+                    tint =
+                        Blue,
+                    modifier =
+                        Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(15.dp)
+            )
+
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(8.dp)
+            ) {
+
+                ControlButton(
+                    modifier =
+                        Modifier.weight(1f),
+                    icon =
+                        Icons.Default.SkipPrevious,
+                    text =
+                        "Anterior",
+                    enabled =
+                        !commandRunning,
+                    onClick =
+                        onPrevious
+                )
+
+                ControlButton(
+                    modifier =
+                        Modifier.weight(1f),
+                    icon =
+                        Icons.Default.PlayArrow,
+                    text =
+                        "Play",
+                    enabled =
+                        !commandRunning,
+                    filled =
+                        true,
+                    onClick =
+                        onPlay
+                )
+
+                ControlButton(
+                    modifier =
+                        Modifier.weight(1f),
+                    icon =
+                        Icons.Default.Pause,
+                    text =
+                        "Pausa",
+                    enabled =
+                        !commandRunning,
+                    onClick =
+                        onPause
+                )
+
+                ControlButton(
+                    modifier =
+                        Modifier.weight(1f),
+                    icon =
+                        Icons.Default.Stop,
+                    text =
+                        "Stop",
+                    enabled =
+                        !commandRunning,
+                    danger =
+                        true,
+                    onClick =
+                        onStop
+                )
+
+                ControlButton(
+                    modifier =
+                        Modifier.weight(1f),
+                    icon =
+                        Icons.Default.SkipNext,
+                    text =
+                        "Siguiente",
+                    enabled =
+                        !commandRunning,
+                    onClick =
+                        onNext
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(14.dp)
+            )
+
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                IconButton(
+                    onClick =
+                        onMute
+                ) {
+
+                    Icon(
+                        imageVector =
+                            if (muted) {
+                                Icons.Default.VolumeOff
+                            } else {
+                                Icons.Default.VolumeUp
+                            },
+                        contentDescription =
+                            "Silenciar",
+                        tint =
+                            Blue
+                    )
+                }
+
+                Icon(
+                    imageVector =
+                        Icons.Default.VolumeDown,
+                    contentDescription =
+                        null,
+                    tint =
+                        TextSecondary,
+                    modifier =
+                        Modifier.size(20.dp)
+                )
+
+                Slider(
+                    value =
+                        if (muted) {
+                            0f
+                        } else {
+                            volume
+                        },
+                    onValueChange =
+                        onVolumeChange,
+                    modifier =
+                        Modifier.weight(1f),
+                    valueRange =
+                        0f..1f
+                )
+
+                Icon(
+                    imageVector =
+                        Icons.Default.VolumeUp,
+                    contentDescription =
+                        null,
+                    tint =
+                        TextSecondary,
+                    modifier =
+                        Modifier.size(20.dp)
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.width(5.dp)
+                )
+
+                Text(
+                    text =
+                        "${(volume * 100).toInt()}%",
+                    fontSize =
+                        12.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        TextDark
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(8.dp)
+            )
+
+            OutlinedButton(
+                onClick =
+                    onSync,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                enabled =
+                    !commandRunning,
+                shape =
+                    RoundedCornerShape(14.dp)
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.Sync,
+                    contentDescription =
+                        null
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.width(8.dp)
+                )
+
+                Text(
+                    text =
+                        "Sincronizar todas las pantallas"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ControlButton(
+    modifier: Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    enabled: Boolean,
+    filled: Boolean = false,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+
+    if (filled) {
+
+        Button(
+            onClick =
+                onClick,
+            modifier =
+                modifier,
+            enabled =
+                enabled,
+            contentPadding =
+                androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 3.dp,
+                    vertical = 8.dp
+                ),
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor =
+                        Blue
+                ),
+            shape =
+                RoundedCornerShape(13.dp)
+        ) {
+
+            Icon(
+                imageVector =
+                    icon,
+                contentDescription =
+                    null,
+                modifier =
+                    Modifier.size(18.dp)
+            )
+        }
+
+    } else {
+
+        OutlinedButton(
+            onClick =
+                onClick,
+            modifier =
+                modifier,
+            enabled =
+                enabled,
+            contentPadding =
+                androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 3.dp,
+                    vertical = 8.dp
+                ),
+            colors =
+                ButtonDefaults.outlinedButtonColors(
+                    contentColor =
+                        if (danger) {
+                            ErrorRed
+                        } else {
+                            TextDark
+                        }
+                ),
+            shape =
+                RoundedCornerShape(13.dp)
+        ) {
+
+            Icon(
+                imageVector =
+                    icon,
+                contentDescription =
+                    null,
+                modifier =
+                    Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun NowPlayingCard(
+    videoId: String,
+    currentVideo: String,
+    onVideoIdChange: (String) -> Unit,
+    onLoad: () -> Unit,
+    commandRunning: Boolean
+) {
+
+    Surface(
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(24.dp),
+        color =
+            CardWhite,
+        shadowElevation =
+            3.dp
+    ) {
+
+        Column(
+            modifier =
+                Modifier.padding(19.dp)
+        ) {
+
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                Box(
+                    modifier =
+                        Modifier
+                            .size(42.dp)
+                            .background(
+                                brush =
+                                    Brush.linearGradient(
+                                        colors =
+                                            listOf(
+                                                Blue,
+                                                SkyBlue
+                                            )
+                                    ),
+                                shape =
+                                    RoundedCornerShape(
+                                        13.dp
+                                    )
+                            ),
+                    contentAlignment =
+                        Alignment.Center
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.VideoLibrary,
+                        contentDescription =
+                            null,
+                        tint =
+                            Color.White,
+                        modifier =
+                            Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(
+                    modifier =
+                        Modifier.width(11.dp)
+                )
+
+                Column {
+
+                    Text(
+                        text =
+                            "REPRODUCTOR",
+                        fontSize =
+                            11.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            Blue
+                    )
+
+                    Text(
+                        text =
+                            "Video actual",
+                        fontSize =
+                            18.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            TextDark
+                    )
+                }
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(13.dp)
+            )
+
+            if (currentVideo.isNotBlank()) {
+
+                Surface(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    shape =
+                        RoundedCornerShape(14.dp),
+                    color =
+                        SoftGreen
+                ) {
+
+                    Row(
+                        modifier =
+                            Modifier.padding(12.dp),
+                        verticalAlignment =
+                            Alignment.CenterVertically
+                    ) {
+
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(8.dp)
+                                    .background(
+                                        Success,
+                                        CircleShape
+                                    )
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.width(8.dp)
+                        )
+
+                        Column {
+
+                            Text(
+                                text =
+                                    "VIDEO CARGADO",
+                                fontSize =
+                                    9.sp,
+                                fontWeight =
+                                    FontWeight.Bold,
+                                color =
+                                    Success
+                            )
+
+                            Text(
+                                text =
+                                    currentVideo,
+                                fontSize =
+                                    13.sp,
+                                fontWeight =
+                                    FontWeight.SemiBold,
+                                color =
+                                    TextDark
+                            )
+                        }
+                    }
+                }
+
+                Spacer(
+                    modifier =
+                        Modifier.height(10.dp)
+                )
+            }
+
+            OutlinedTextField(
+                value =
+                    videoId,
+                onValueChange =
+                    onVideoIdChange,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                enabled =
+                    !commandRunning,
+                singleLine =
+                    true,
+                label = {
+                    Text(
+                        "ID o URL de YouTube"
+                    )
+                },
+                placeholder = {
+                    Text(
+                        "dQw4w9WgXcQ"
+                    )
+                },
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType =
+                            KeyboardType.Uri
+                    )
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(10.dp)
+            )
+
+            Button(
+                onClick =
+                    onLoad,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                enabled =
+                    !commandRunning &&
+                            videoId.isNotBlank(),
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor =
+                            Blue
+                    ),
+                shape =
+                    RoundedCornerShape(14.dp)
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.VideoLibrary,
+                    contentDescription =
+                        null
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.width(8.dp)
+                )
+
+                Text(
+                    text =
+                        if (commandRunning) {
+                            "Esperando READY..."
+                        } else {
+                            "Cargar y preparar todas"
+                        }
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.height(7.dp)
+            )
+
+            Text(
+                text =
+                    "El controlador espera la confirmación READY de las pantallas antes de terminar la carga.",
+                fontSize =
+                    11.sp,
+                color =
+                    TextSecondary
+            )
+        }
+    }
 }
 
 @Composable
 fun SectionHeader(
-title: String,
-action: String,
-onClick: () -> Unit
+    title: String,
+    action: String,
+    onClick: () -> Unit
 ) {
-
-Row(
-    modifier =
-        Modifier.fillMaxWidth(),
-    verticalAlignment =
-        Alignment.CenterVertically
-) {
-
-    Text(
-        text =
-            title,
-        fontSize =
-            21.sp,
-        fontWeight =
-            FontWeight.Bold,
-        color =
-            TextDark
-    )
-
-    Spacer(
-        modifier =
-            Modifier.size(20.dp)
-    )
 
     Row(
         modifier =
-            Modifier
-                .clickable {
-                    onClick()
-                }
-                .padding(6.dp),
+            Modifier.fillMaxWidth(),
         verticalAlignment =
             Alignment.CenterVertically
     ) {
 
         Text(
             text =
-                action,
+                title,
             fontSize =
-                13.sp,
+                21.sp,
             fontWeight =
-                FontWeight.SemiBold,
+                FontWeight.Bold,
             color =
-                Blue
+                TextDark,
+            modifier =
+                Modifier.weight(1f)
         )
 
-        Spacer(
+        Row(
             modifier =
-                Modifier.size(4.dp)
-        )
+                Modifier
+                    .clickable {
+                        onClick()
+                    }
+                    .padding(5.dp),
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
 
-        Icon(
-            imageVector =
-                Icons.Default.Refresh,
-            contentDescription =
-                "Actualizar",
-            tint =
-                Blue,
-            modifier =
-                Modifier.size(18.dp)
-        )
+            Text(
+                text =
+                    action,
+                fontSize =
+                    13.sp,
+                fontWeight =
+                    FontWeight.SemiBold,
+                color =
+                    Blue
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.width(4.dp)
+            )
+
+            Icon(
+                imageVector =
+                    Icons.Default.Refresh,
+                contentDescription =
+                    "Actualizar",
+                tint =
+                    Blue,
+                modifier =
+                    Modifier.size(18.dp)
+            )
+        }
     }
-}
-
 }
 
 @Composable
 fun DiagnosticCard(
-message: String,
-isError: Boolean
+    message: String,
+    isError: Boolean
 ) {
 
-Surface(
-    modifier =
-        Modifier.fillMaxWidth(),
-    shape =
-        RoundedCornerShape(18.dp),
-    color =
-        if (isError) {
-            Color(0xFFFFF1F2)
-        } else {
-            Color(0xFFEFF6FF)
-        }
-) {
-
-    Text(
-        text =
-            message,
+    Surface(
         modifier =
-            Modifier.padding(16.dp),
-        fontSize =
-            13.sp,
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(15.dp),
         color =
             if (isError) {
-                ErrorRed
+                SoftRed
             } else {
-                TextDark
+                Color(0xFFEFF6FF)
             }
-    )
-}
+    ) {
 
+        Row(
+            modifier =
+                Modifier.padding(13.dp),
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            Box(
+                modifier =
+                    Modifier
+                        .size(8.dp)
+                        .background(
+                            if (isError) {
+                                ErrorRed
+                            } else {
+                                Blue
+                            },
+                            CircleShape
+                        )
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.width(9.dp)
+            )
+
+            Text(
+                text =
+                    message,
+                fontSize =
+                    12.sp,
+                color =
+                    if (isError) {
+                        ErrorRed
+                    } else {
+                        TextDark
+                    }
+            )
+        }
+    }
 }
 
 @Composable
 fun EmptyState(
-discovering: Boolean,
-onRefresh: () -> Unit
+    discovering: Boolean,
+    onRefresh: () -> Unit
 ) {
 
-Column(
-    modifier =
-        Modifier.fillMaxWidth(),
-    horizontalAlignment =
-        Alignment.CenterHorizontally
-) {
-
-    Spacer(
+    Column(
         modifier =
-            Modifier.height(30.dp)
-    )
-
-    Box(
-        modifier =
-            Modifier
-                .size(72.dp)
-                .background(
-                    color =
-                        SoftBlue,
-                    shape =
-                        CircleShape
-                ),
-        contentAlignment =
-            Alignment.Center
+            Modifier.fillMaxWidth(),
+        horizontalAlignment =
+            Alignment.CenterHorizontally
     ) {
-
-        Icon(
-            imageVector =
-                Icons.Default.Devices,
-            contentDescription =
-                null,
-            tint =
-                Blue,
-            modifier =
-                Modifier.size(38.dp)
-        )
-    }
-
-    Spacer(
-        modifier =
-            Modifier.height(16.dp)
-    )
-
-    Text(
-        text =
-            if (discovering) {
-                "Buscando pantallas..."
-            } else {
-                "No se encontraron pantallas"
-            },
-        fontSize =
-            18.sp,
-        fontWeight =
-            FontWeight.Bold,
-        color =
-            TextDark
-    )
-
-    Spacer(
-        modifier =
-            Modifier.height(8.dp)
-    )
-
-    Text(
-        text =
-            "Puedes probar la IP manualmente arriba.",
-        fontSize =
-            13.sp,
-        color =
-            TextSecondary
-    )
-
-    Spacer(
-        modifier =
-            Modifier.height(16.dp)
-    )
-
-    Button(
-        onClick =
-            onRefresh,
-        colors =
-            ButtonDefaults
-                .buttonColors(
-                    containerColor =
-                        Blue
-                ),
-        shape =
-            RoundedCornerShape(
-                14.dp
-            )
-    ) {
-
-        Icon(
-            imageVector =
-                Icons.Default.Refresh,
-            contentDescription =
-                null
-        )
 
         Spacer(
             modifier =
-                Modifier.size(8.dp)
+                Modifier.height(25.dp)
         )
-
-        Text(
-            text =
-                "Buscar nuevamente"
-        )
-    }
-}
-
-}
-
-@Composable
-fun ScreenCard(
-receiver: Receiver,
-connected: Boolean,
-latency: Long?
-) {
-
-Surface(
-    modifier =
-        Modifier.fillMaxWidth(),
-    shape =
-        RoundedCornerShape(22.dp),
-    color =
-        CardWhite,
-    shadowElevation =
-        3.dp
-) {
-
-    Row(
-        modifier =
-            Modifier.padding(18.dp),
-        verticalAlignment =
-            Alignment.CenterVertically
-    ) {
 
         Box(
             modifier =
                 Modifier
-                    .size(48.dp)
+                    .size(70.dp)
                     .background(
-                        color =
-                            SoftBlue,
-                        shape =
-                            RoundedCornerShape(
-                                15.dp
-                            )
+                        SoftBlue,
+                        CircleShape
                     ),
             contentAlignment =
                 Alignment.Center
@@ -1539,117 +1990,456 @@ Surface(
                 tint =
                     Blue,
                 modifier =
-                    Modifier.size(25.dp)
+                    Modifier.size(36.dp)
             )
         }
 
         Spacer(
             modifier =
-                Modifier.size(14.dp)
+                Modifier.height(13.dp)
         )
 
-        Column {
+        Text(
+            text =
+                if (discovering) {
+                    "Buscando pantallas..."
+                } else {
+                    "No hay pantallas conectadas"
+                },
+            fontSize =
+                17.sp,
+            fontWeight =
+                FontWeight.Bold,
+            color =
+                TextDark
+        )
 
-            Text(
-                text =
-                    receiver.name,
-                fontSize =
-                    16.sp,
-                fontWeight =
-                    FontWeight.Bold,
-                color =
-                    TextDark
-            )
+        Spacer(
+            modifier =
+                Modifier.height(6.dp)
+        )
 
-            Text(
-                text =
-                    receiver.address,
-                fontSize =
-                    12.sp,
+        Text(
+            text =
+                "Activa SmartTube Sync en tus receptores.",
+            fontSize =
+                12.sp,
                 color =
-                    TextSecondary
+                TextSecondary
+        )
+
+        Spacer(
+            modifier =
+                Modifier.height(13.dp)
+        )
+
+        Button(
+            onClick =
+                onRefresh,
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor =
+                        Blue
+                ),
+            shape =
+                RoundedCornerShape(13.dp)
+        ) {
+
+            Icon(
+                imageVector =
+                    Icons.Default.Refresh,
+                contentDescription =
+                    null
             )
 
             Spacer(
                 modifier =
-                    Modifier.height(4.dp)
+                    Modifier.width(7.dp)
             )
 
             Text(
                 text =
-                    when {
-
-                        connected &&
-                                latency != null ->
-                            "🟢 Conectada · ${latency} ms"
-
-                        connected ->
-                            "🟢 Conectada"
-
-                        else ->
-                            "⚪ Desconectada"
-                    },
-                fontSize =
-                    13.sp,
-                fontWeight =
-                    FontWeight.SemiBold,
-                color =
-                    if (connected) {
-                        Success
-                    } else {
-                        TextSecondary
-                    }
+                    "Buscar pantallas"
             )
         }
     }
 }
 
+@Composable
+fun ScreenCard(
+    receiver: Receiver,
+    connected: Boolean,
+    latency: Long?,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onStop: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onMute: () -> Unit
+) {
+
+    Surface(
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(22.dp),
+        color =
+            CardWhite,
+        shadowElevation =
+            3.dp
+    ) {
+
+        Column(
+            modifier =
+                Modifier.padding(17.dp)
+        ) {
+
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                Box(
+                    modifier =
+                        Modifier
+                            .size(46.dp)
+                            .background(
+                                if (connected) {
+                                    SoftGreen
+                                } else {
+                                    SoftBlue
+                                },
+                                RoundedCornerShape(14.dp)
+                            ),
+                    contentAlignment =
+                        Alignment.Center
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.Devices,
+                        contentDescription =
+                            null,
+                        tint =
+                            if (connected) {
+                                Success
+                            } else {
+                                Blue
+                            },
+                        modifier =
+                            Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(
+                    modifier =
+                        Modifier.width(11.dp)
+                )
+
+                Column(
+                    modifier =
+                        Modifier.weight(1f)
+                ) {
+
+                    Text(
+                        text =
+                            receiver.name,
+                        fontSize =
+                            16.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            TextDark
+                    )
+
+                    Text(
+                        text =
+                            receiver.address,
+                        fontSize =
+                            11.sp,
+                        color =
+                            TextSecondary
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(3.dp)
+                    )
+
+                    Text(
+                        text =
+                            when {
+                                connected &&
+                                        latency != null ->
+                                    "● Conectada · ${latency} ms"
+
+                                connected ->
+                                    "● Conectada"
+
+                                else ->
+                                    "○ Desconectada"
+                            },
+                        fontSize =
+                            11.sp,
+                        fontWeight =
+                            FontWeight.SemiBold,
+                        color =
+                            if (connected) {
+                                Success
+                            } else {
+                                TextSecondary
+                            }
+                    )
+                }
+
+                Box(
+                    modifier =
+                        Modifier
+                            .background(
+                                if (connected) {
+                                    SoftGreen
+                                } else {
+                                    SoftRed
+                                },
+                                RoundedCornerShape(10.dp)
+                            )
+                            .padding(
+                                horizontal = 8.dp,
+                                vertical = 6.dp
+                            )
+                ) {
+
+                    Text(
+                        text =
+                            if (connected) {
+                                "ONLINE"
+                            } else {
+                                "OFFLINE"
+                            },
+                        fontSize =
+                            9.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        color =
+                            if (connected) {
+                                Success
+                            } else {
+                                ErrorRed
+                            }
+                    )
+                }
+            }
+
+            if (connected) {
+
+                Spacer(
+                    modifier =
+                        Modifier.height(13.dp)
+                )
+
+                Row(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(7.dp)
+                ) {
+
+                    MiniControl(
+                        modifier =
+                            Modifier.weight(1f),
+                        icon =
+                            Icons.Default.SkipPrevious,
+                        onClick =
+                            onPrevious
+                    )
+
+                    MiniControl(
+                        modifier =
+                            Modifier.weight(1f),
+                        icon =
+                            Icons.Default.PlayArrow,
+                        onClick =
+                            onPlay,
+                        active =
+                            true
+                    )
+
+                    MiniControl(
+                        modifier =
+                            Modifier.weight(1f),
+                        icon =
+                            Icons.Default.Pause,
+                        onClick =
+                            onPause
+                    )
+
+                    MiniControl(
+                        modifier =
+                            Modifier.weight(1f),
+                        icon =
+                            Icons.Default.Stop,
+                        onClick =
+                            onStop,
+                        danger =
+                            true
+                    )
+
+                    MiniControl(
+                        modifier =
+                            Modifier.weight(1f),
+                        icon =
+                            Icons.Default.SkipNext,
+                        onClick =
+                            onNext
+                    )
+
+                    MiniControl(
+                        modifier =
+                            Modifier.weight(1f),
+                        icon =
+                            Icons.Default.VolumeOff,
+                        onClick =
+                            onMute
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MiniControl(
+    modifier: Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    active: Boolean = false,
+    danger: Boolean = false
+) {
+
+    Surface(
+        modifier =
+            modifier.clickable {
+                onClick()
+            },
+        shape =
+            RoundedCornerShape(12.dp),
+        color =
+            when {
+                active ->
+                    Blue
+
+                danger ->
+                    SoftRed
+
+                else ->
+                    SoftBlue
+            }
+    ) {
+
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        vertical = 9.dp
+                    ),
+            contentAlignment =
+                Alignment.Center
+        ) {
+
+            Icon(
+                imageVector =
+                    icon,
+                contentDescription =
+                    null,
+                tint =
+                    when {
+                        active ->
+                            Color.White
+
+                        danger ->
+                            ErrorRed
+
+                        else ->
+                            Blue
+                    },
+                modifier =
+                    Modifier.size(18.dp)
+            )
+        }
+    }
 }
 
 @Composable
 fun AddScreenButton() {
 
-Surface(
-    modifier =
-        Modifier.fillMaxWidth(),
-    shape =
-        RoundedCornerShape(20.dp),
-    color =
-        SoftBlue
-) {
-
-    Row(
+    Surface(
         modifier =
-            Modifier.padding(18.dp),
-        verticalAlignment =
-            Alignment.CenterVertically
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(18.dp),
+        color =
+            SoftBlue
     ) {
 
-        Icon(
-            imageVector =
-                Icons.Default.Add,
-            contentDescription =
-                null,
-            tint =
-                Blue
-        )
-
-        Spacer(
+        Row(
             modifier =
-                Modifier.size(10.dp)
-        )
+                Modifier.padding(17.dp),
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
 
-        Text(
-            text =
-                "Agregar otra pantalla",
-            fontSize =
-                15.sp,
-            fontWeight =
-                FontWeight.SemiBold,
-            color =
-                Blue
-        )
+            Box(
+                modifier =
+                    Modifier
+                        .size(36.dp)
+                        .background(
+                            Blue,
+                            CircleShape
+                        ),
+                contentAlignment =
+                    Alignment.Center
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.Add,
+                    contentDescription =
+                        null,
+                    tint =
+                        Color.White,
+                    modifier =
+                        Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.width(10.dp)
+            )
+
+            Column {
+
+                Text(
+                    text =
+                        "Agregar otra pantalla",
+                    fontSize =
+                        14.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        TextDark
+                )
+
+                Text(
+                    text =
+                        "Puedes controlar hasta 10 receptores",
+                    fontSize =
+                        11.sp,
+                    color =
+                        TextSecondary
+                )
+            }
+        }
     }
-}
-
 }
