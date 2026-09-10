@@ -228,6 +228,7 @@ Surface(
                                 .getInstance()
 
                         if (service != null) {
+                            service.startDiscovery()
                             receivers =
                                 service.receiverList.value
                         }
@@ -242,6 +243,7 @@ Surface(
                                 .getInstance()
 
                         if (service != null) {
+                            service.startDiscovery()
                             receivers =
                                 service.receiverList.value
                         }
