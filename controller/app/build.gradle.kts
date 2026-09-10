@@ -23,24 +23,16 @@ android {
         create("ygsync") {
 
             val keystorePath =
-                project.findProperty(
-                    "ygsyncKeystore"
-                ) as String?
+                project.findProperty("ygsyncKeystore") as String?
 
             val storePassword =
-                project.findProperty(
-                    "ygsyncStorePassword"
-                ) as String?
+                project.findProperty("ygsyncStorePassword") as String?
 
             val keyAlias =
-                project.findProperty(
-                    "ygsyncKeyAlias"
-                ) as String?
+                project.findProperty("ygsyncKeyAlias") as String?
 
             val keyPassword =
-                project.findProperty(
-                    "ygsyncKeyPassword"
-                ) as String?
+                project.findProperty("ygsyncKeyPassword") as String?
 
             if (
                 keystorePath != null &&
@@ -49,7 +41,6 @@ android {
                 keyPassword != null
             ) {
                 storeFile = file(keystorePath)
-
                 this.storePassword = storePassword
                 this.keyAlias = keyAlias
                 this.keyPassword = keyPassword
@@ -77,11 +68,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility =
-            JavaVersion.VERSION_17
-
-        targetCompatibility =
-            JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
@@ -130,14 +118,17 @@ dependencies {
     )
 
     /*
-     * YG SYNC — MOTOR DE YOUTUBE
+     * HTTP
+     */
+    implementation(
+        "com.squareup.okhttp3:okhttp:4.12.0"
+    )
+
+    /*
+     * YG SYNC — YOUTUBE ENGINE
      *
      * No utiliza YouTube Data API.
-     * No requiere API key de YouTube.
-     *
-     * NewPipe Extractor se encargará de obtener
-     * búsquedas, vídeos, canales, playlists,
-     * duración y otra información de YouTube.
+     * No utiliza API key.
      */
     implementation(
         "com.github.TeamNewPipe:NewPipeExtractor:v0.26.5"
