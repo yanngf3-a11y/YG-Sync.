@@ -179,10 +179,6 @@ private fun YgSyncApp(
             modifier = Modifier.fillMaxSize()
         ) {
 
-            /*
-             * El contenido ocupa el espacio disponible
-             * y deja la barra inferior siempre visible.
-             */
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -996,10 +992,6 @@ private fun ReceiverCard(
     }
 }
 
-/* ============================================================
-   PANTALLA TÉCNICA
-   ============================================================ */
-
 @Composable
 private fun TechnicalScreen(
     receivers: List<Receiver>,
@@ -1668,10 +1660,6 @@ private fun SettingsScreen() {
         }
     }
 }
-
-/* ============================================================
-   BARRA INFERIOR
-   ============================================================ */
 
 @Composable
 private fun BottomNavigationBar(
