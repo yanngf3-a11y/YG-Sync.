@@ -49,7 +49,6 @@ android {
     }
 
     buildTypes {
-
         debug {
             signingConfig =
                 signingConfigs.getByName("ygsync")
@@ -88,6 +87,14 @@ dependencies {
     )
 
     implementation(
+        "androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7"
+    )
+
+    implementation(
+        "androidx.compose.runtime:runtime-livedata:1.7.6"
+    )
+
+    implementation(
         platform(
             "androidx.compose:compose-bom:2024.12.01"
         )
@@ -117,19 +124,10 @@ dependencies {
         "org.java-websocket:Java-WebSocket:1.5.3"
     )
 
-    /*
-     * HTTP
-     */
     implementation(
         "com.squareup.okhttp3:okhttp:4.12.0"
     )
 
-    /*
-     * YG SYNC — YOUTUBE ENGINE
-     *
-     * No utiliza YouTube Data API.
-     * No utiliza API key.
-     */
     implementation(
         "com.github.TeamNewPipe:NewPipeExtractor:v0.26.5"
     )
