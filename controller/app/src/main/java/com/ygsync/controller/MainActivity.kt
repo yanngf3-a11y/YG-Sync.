@@ -64,7 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -179,69 +179,80 @@ private fun YgSyncApp(
             modifier = Modifier.fillMaxSize()
         ) {
 
-            when (selectedTab) {
+            /*
+             * El contenido ocupa el espacio disponible
+             * y deja la barra inferior siempre visible.
+             */
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
 
-                0 -> HomeScreen(
-                    uiState = uiState,
-                    onQueryChange = viewModel::setQuery,
-                    onSearch = viewModel::search,
-                    onClear = viewModel::clearSearch,
-                    onVideoClick = { video ->
-                        selectedVideo = video
+                when (selectedTab) {
 
-                        sendVideoToReceivers(
-                            context = context,
-                            video = video
-                        )
-                    }
-                )
+                    0 -> HomeScreen(
+                        uiState = uiState,
+                        onQueryChange = viewModel::setQuery,
+                        onSearch = viewModel::search,
+                        onClear = viewModel::clearSearch,
+                        onVideoClick = { video ->
+                            selectedVideo = video
 
-                1 -> SearchScreen(
-                    uiState = uiState,
-                    onQueryChange = viewModel::setQuery,
-                    onSearch = viewModel::search,
-                    onClear = viewModel::clearSearch,
-                    onVideoClick = { video ->
-                        selectedVideo = video
-
-                        sendVideoToReceivers(
-                            context = context,
-                            video = video
-                        )
-                    }
-                )
-
-                2 -> LibraryScreen(
-                    selectedVideo = selectedVideo
-                )
-
-                3 -> DevicesScreen(
-                    receivers = receivers,
-                    onRefresh = {
-                        val service =
-                            ControllerSyncService.getInstance()
-
-                        if (service != null) {
-                            receivers =
-                                service.receiverList.value
+                            sendVideoToReceivers(
+                                context = context,
+                                video = video
+                            )
                         }
-                    }
-                )
+                    )
 
-                4 -> TechnicalScreen(
-                    receivers = receivers,
-                    onRefresh = {
-                        val service =
-                            ControllerSyncService.getInstance()
+                    1 -> SearchScreen(
+                        uiState = uiState,
+                        onQueryChange = viewModel::setQuery,
+                        onSearch = viewModel::search,
+                        onClear = viewModel::clearSearch,
+                        onVideoClick = { video ->
+                            selectedVideo = video
 
-                        if (service != null) {
-                            receivers =
-                                service.receiverList.value
+                            sendVideoToReceivers(
+                                context = context,
+                                video = video
+                            )
                         }
-                    }
-                )
+                    )
 
-                else -> SettingsScreen()
+                    2 -> LibraryScreen(
+                        selectedVideo = selectedVideo
+                    )
+
+                    3 -> DevicesScreen(
+                        receivers = receivers,
+                        onRefresh = {
+                            val service =
+                                ControllerSyncService.getInstance()
+
+                            if (service != null) {
+                                receivers =
+                                    service.receiverList.value
+                            }
+                        }
+                    )
+
+                    4 -> TechnicalScreen(
+                        receivers = receivers,
+                        onRefresh = {
+                            val service =
+                                ControllerSyncService.getInstance()
+
+                            if (service != null) {
+                                receivers =
+                                    service.receiverList.value
+                            }
+                        }
+                    )
+
+                    5 -> SettingsScreen()
+                }
             }
 
             BottomNavigationBar(
@@ -505,7 +516,7 @@ private fun VideoList(
         contentPadding = PaddingValues(
             start = 14.dp,
             end = 14.dp,
-            bottom = 110.dp
+            bottom = 24.dp
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -880,7 +891,7 @@ private fun DevicesScreen(
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
-                    bottom = 110.dp
+                    bottom = 24.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -1040,7 +1051,7 @@ private fun TechnicalScreen(
                 start = 16.dp,
                 end = 16.dp,
                 top = 4.dp,
-                bottom = 110.dp
+                bottom = 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -1095,7 +1106,7 @@ private fun TechnicalScreen(
                         )
 
                         Text(
-                            text = "Buscar pantallas"
+                            text = "Buscar"
                         )
                     }
 
@@ -1524,7 +1535,7 @@ private fun TechnicalEmptyCard() {
                 )
 
                 Text(
-                    text = "Pulsa «Buscar pantallas» para actualizar.",
+                    text = "Pulsa «Buscar» para actualizar.",
                     color = YgMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -1658,6 +1669,10 @@ private fun SettingsScreen() {
     }
 }
 
+/* ============================================================
+   BARRA INFERIOR
+   ============================================================ */
+
 @Composable
 private fun BottomNavigationBar(
     selectedTab: Int,
@@ -1675,11 +1690,11 @@ private fun BottomNavigationBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(70.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
 
             BottomItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.Home,
                 label = "Inicio",
                 selected = selectedTab == 0,
@@ -1689,6 +1704,7 @@ private fun BottomNavigationBar(
             )
 
             BottomItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.Search,
                 label = "Buscar",
                 selected = selectedTab == 1,
@@ -1698,6 +1714,7 @@ private fun BottomNavigationBar(
             )
 
             BottomItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.LibraryMusic,
                 label = "Biblioteca",
                 selected = selectedTab == 2,
@@ -1707,6 +1724,7 @@ private fun BottomNavigationBar(
             )
 
             BottomItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.Tv,
                 label = "Pantallas",
                 selected = selectedTab == 3,
@@ -1716,6 +1734,7 @@ private fun BottomNavigationBar(
             )
 
             BottomItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.Build,
                 label = "Técnico",
                 selected = selectedTab == 4,
@@ -1725,6 +1744,7 @@ private fun BottomNavigationBar(
             )
 
             BottomItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.Settings,
                 label = "Ajustes",
                 selected = selectedTab == 5,
@@ -1738,19 +1758,21 @@ private fun BottomNavigationBar(
 
 @Composable
 private fun BottomItem(
+    modifier: Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .clickable {
                 onClick()
             }
             .padding(
-                horizontal = 8.dp,
+                horizontal = 2.dp,
                 vertical = 5.dp
             ),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1779,7 +1801,9 @@ private fun BottomItem(
             } else {
                 FontWeight.Normal
             },
-            style = MaterialTheme.typography.labelSmall
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
