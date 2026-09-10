@@ -4,35 +4,37 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.ygsync.controller.data.Receiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 class ControllerSyncService : Service() {
 
     companion object {
 
-        const val ACTION_START =
-            "com.ygsync.controller.START_SYNC"
-
-        const val ACTION_STOP =
-            "com.ygsync.controller.STOP_SYNC"
+        private const val TAG =
+            "YG_SYNC_SERVICE"
 
         private const val CHANNEL_ID =
             "ygsync_controller"
+
+        private const val CHANNEL_NAME =
+            "YG Sync Controller"
 
         private const val NOTIFICATION_ID =
             8765
@@ -40,67 +42,79 @@ class ControllerSyncService : Service() {
         private const val PING_INTERVAL_MS =
             5000L
 
+        private const val RECONNECT_DELAY_MS =
+            3000L
+
+        @Volatile
         private var instance:
-            ControllerSyncService? = null
+                ControllerSyncService? = null
 
         fun getInstance():
-            ControllerSyncService? =
-            instance
+                ControllerSyncService? {
+            return instance
+        }
     }
 
     private val serviceScope =
         CoroutineScope(
             SupervisorJob() +
-                    Dispatchers.Main.immediate
+                    Dispatchers.IO
         )
+
+    private var maintenanceJob:
+            Job? = null
 
     private val connections =
-        ConcurrentHashMap<String, ReceiverConnection>()
+        ConcurrentHashMap<
+                String,
+                ReceiverConnection
+                >()
 
-    private val receivers =
-        ConcurrentHashMap<String, Receiver>()
+    private val registeredReceivers =
+        ConcurrentHashMap<
+                String,
+                Receiver
+                >()
+
+    private val _receivers =
+        MutableStateFlow<
+                List<Receiver>
+                >(emptyList())
+
+    val receivers:
+            StateFlow<List<Receiver>> =
+        _receivers.asStateFlow()
 
     private val _connectionStates =
-        MutableStateFlow<Map<String, Boolean>>(
-            emptyMap()
-        )
+        MutableStateFlow<
+                Map<String, Boolean>
+                >(emptyMap())
 
     val connectionStates:
-        StateFlow<Map<String, Boolean>> =
+            StateFlow<Map<String, Boolean>> =
         _connectionStates.asStateFlow()
 
     private val _latencies =
-        MutableStateFlow<Map<String, Long>>(
-            emptyMap()
-        )
+        MutableStateFlow<
+                Map<String, Long>
+                >(emptyMap())
 
     val latencies:
-        StateFlow<Map<String, Long>> =
+            StateFlow<Map<String, Long>> =
         _latencies.asStateFlow()
 
-    private val _receivers =
-        MutableStateFlow<List<Receiver>>(
-            emptyList()
-        )
-
-    val receiverList:
-        StateFlow<List<Receiver>> =
-        _receivers.asStateFlow()
-
     private val _diagnostic =
-        MutableStateFlow(
-            "Preparando conexión..."
-        )
+        MutableStateFlow("YG Sync detenido")
 
     val diagnostic:
-        StateFlow<String> =
+            StateFlow<String> =
         _diagnostic.asStateFlow()
 
     private val _started =
         MutableStateFlow(false)
 
     val started:
-        StateFlow<Boolean> =
+            StateFlow<Boolean> =
         _started.asStateFlow()
 
     override fun onCreate() {
@@ -112,17 +126,21 @@ class ControllerSyncService : Service() {
 
         startForeground(
             NOTIFICATION_ID,
-            createNotification(
-                "YG Sync activo"
-            )
+            createNotification()
         )
 
         _started.value = true
 
-        _diagnostic.value =
-            "🟢 Servicio de conexión activo"
+        updateDiagnostic(
+            "YG SYNC — SERVICIO ACTIVO"
+        )
 
-        startPingLoop()
+        startMaintenanceLoop()
+
+        Log.d(
+            TAG,
+            "Servicio iniciado"
+        )
     }
 
     override fun onStartCommand(
@@ -131,19 +149,10 @@ class ControllerSyncService : Service() {
         startId: Int
     ): Int {
 
-        when (intent?.action) {
-
-            ACTION_STOP -> {
-                stopService()
-                return START_NOT_STICKY
-            }
-
-            ACTION_START,
-            null -> {
-                _diagnostic.value =
-                    "🟢 YG Sync manteniendo conexión"
-            }
-        }
+        Log.d(
+            TAG,
+            "onStartCommand()"
+        )
 
         return START_STICKY
     }
@@ -152,37 +161,39 @@ class ControllerSyncService : Service() {
         receiver: Receiver
     ) {
 
-        receivers[receiver.id] =
-            receiver
+        registeredReceivers[
+            receiver.id
+        ] = receiver
 
-        publishReceivers()
+        updateReceiverList()
 
-        connectToReceiver(
-            receiver
-        )
-    }
-
-    fun registerReceivers(
-        discovered: List<Receiver>
-    ) {
-
-        for (receiver in discovered) {
-
-            receivers[receiver.id] =
-                receiver
-        }
-
-        publishReceivers()
-
-        for (receiver in discovered) {
-
+        serviceScope.launch {
             connectToReceiver(
                 receiver
             )
         }
     }
 
-    private fun connectToReceiver(
+    fun registerReceivers(
+        receivers: List<Receiver>
+    ) {
+
+        receivers.forEach {
+            registeredReceivers[
+                it.id
+            ] = it
+        }
+
+        updateReceiverList()
+
+        receivers.forEach {
+            serviceScope.launch {
+                connectToReceiver(it)
+            }
+        }
+    }
+
+    private suspend fun connectToReceiver(
         receiver: Receiver
     ) {
 
@@ -193,337 +204,297 @@ class ControllerSyncService : Service() {
             existing != null &&
             existing.isConnected()
         ) {
-
-            updateState(
+            updateConnectionState(
                 receiver.id,
-                true,
-                null
+                true
             )
 
             return
         }
 
-        existing?.disconnect()
+        updateDiagnostic(
+            "Conectando a ${receiver.name}..."
+        )
+
+        Log.d(
+            TAG,
+            "Conectando a "
+                    + receiver.address
+                    + ":"
+                    + receiver.port
+        )
 
         val connection =
             ReceiverConnection(
-                receiver
+                receiver.address,
+                receiver.port
             )
 
-        connections[receiver.id] =
-            connection
-
-        serviceScope.launch {
-
+        val success =
             try {
-
-                _diagnostic.value =
-                    "🔗 Conectando con ${receiver.name}..."
-
-                val connected =
-                    withContext(
-                        Dispatchers.IO
-                    ) {
-                        connection.connect()
-                    }
-
-                if (!connected) {
-
-                    connection.disconnect()
-
-                    connections.remove(
-                        receiver.id
-                    )
-
-                    updateState(
-                        receiver.id,
-                        false,
-                        null
-                    )
-
-                    _diagnostic.value =
-                        "❌ No se pudo conectar con ${receiver.name}"
-
-                    return@launch
-                }
-
-                updateState(
-                    receiver.id,
-                    true,
-                    null
+                connection.connect()
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "Error conectando a ${receiver.id}",
+                    e
                 )
-
-                _diagnostic.value =
-                    "🟢 Conectado: ${receiver.name}"
-
-                val latency =
-                    withContext(
-                        Dispatchers.IO
-                    ) {
-                        connection.ping()
-                    }
-
-                if (latency != null) {
-
-                    updateState(
-                        receiver.id,
-                        true,
-                        latency
-                    )
-
-                    _diagnostic.value =
-                        "🟢 ${receiver.name} conectada · ${latency} ms"
-
-                } else {
-
-                    /*
-                     * No destruimos inmediatamente
-                     * la conexión si el primer PING
-                     * falla.
-                     *
-                     * El ciclo de mantenimiento
-                     * intentará recuperarla.
-                     */
-                    updateState(
-                        receiver.id,
-                        connection.isConnected(),
-                        null
-                    )
-
-                    _diagnostic.value =
-                        "🟠 TCP conectado; esperando respuesta del receptor"
-                }
-
-            } catch (exception: Exception) {
-
-                connection.disconnect()
-
-                connections.remove(
-                    receiver.id
-                )
-
-                updateState(
-                    receiver.id,
-                    false,
-                    null
-                )
-
-                _diagnostic.value =
-                    "❌ Error de conexión: ${
-                        exception.message
-                            ?: "error desconocido"
-                    }"
+                false
             }
+
+        if (!success) {
+
+            connection.disconnect()
+
+            connections.remove(
+                receiver.id
+            )
+
+            updateConnectionState(
+                receiver.id,
+                false
+            )
+
+            updateDiagnostic(
+                "No se pudo conectar a ${receiver.name}"
+            )
+
+            return
         }
+
+        connections[
+            receiver.id
+        ] = connection
+
+        val pingStart =
+            System.currentTimeMillis()
+
+        val pingSuccess =
+            try {
+                connection.ping()
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "Error en ping inicial",
+                    e
+                )
+                false
+            }
+
+        val latency =
+            System.currentTimeMillis()
+                    - pingStart
+
+        if (!pingSuccess) {
+
+            Log.e(
+                TAG,
+                "Ping falló para ${receiver.name}"
+            )
+
+            connection.disconnect()
+
+            connections.remove(
+                receiver.id
+            )
+
+            updateConnectionState(
+                receiver.id,
+                false
+            )
+
+            updateDiagnostic(
+                "Conexión rechazada por ${receiver.name}"
+            )
+
+            return
+        }
+
+        _latencies.updateValue(
+            receiver.id,
+            latency
+        )
+
+        updateConnectionState(
+            receiver.id,
+            true
+        )
+
+        updateDiagnostic(
+            "Conectado: ${receiver.name}"
+        )
+
+        Log.d(
+            TAG,
+            "Conexión establecida con ${receiver.name}"
+        )
     }
 
-    suspend fun sendCommand(
+    fun sendCommand(
         command: String
-    ): Int {
+    ): Boolean {
 
-        var successCount = 0
+        var successCount =
+            0
 
-        val currentConnections =
-            connections.toMap()
+        connections.forEach { (id, connection) ->
 
-        for (entry in currentConnections) {
-
-            val connection =
-                entry.value
-
-            if (
-                !connection.isConnected()
-            ) {
-                continue
+            if (!connection.isConnected()) {
+                return@forEach
             }
 
             try {
 
-                val success =
-                    withContext(
-                        Dispatchers.IO
-                    ) {
-                        connection.send(
-                            command
-                        )
-                    }
-
-                if (success) {
+                if (connection.send(command)) {
                     successCount++
                 }
 
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+
+                Log.e(
+                    TAG,
+                    "Error enviando comando a $id",
+                    e
+                )
             }
         }
 
-        return successCount
+        return successCount > 0
     }
 
     fun sendCommandAsync(
         command: String,
-        callback:
-            (Int, Int) -> Unit
+        callback: (
+            success: Int,
+            total: Int
+        ) -> Unit
     ) {
 
         serviceScope.launch {
 
-            val total =
-                connections
-                    .count {
-                        it.value.isConnected()
-                    }
+            var successCount =
+                0
 
-            if (total == 0) {
+            var total =
+                0
 
-                _diagnostic.value =
-                    "⚠️ No hay pantallas conectadas"
+            connections.forEach { (id, connection) ->
 
-                callback(
-                    0,
-                    0
-                )
-
-                return@launch
-            }
-
-            val success =
-                sendCommand(
-                    command
-                )
-
-            _diagnostic.value =
-                if (success == total) {
-
-                    "🟢 Comando enviado · $success pantalla(s)"
-
-                } else {
-
-                    "🟠 Comando enviado · $success/$total respondieron"
+                if (!connection.isConnected()) {
+                    return@forEach
                 }
 
-            callback(
-                success,
-                total
-            )
-        }
-    }
-
-    private fun startPingLoop() {
-
-        serviceScope.launch {
-
-            while (true) {
-
-                delay(
-                    PING_INTERVAL_MS
-                )
-
-                maintainConnections()
-            }
-        }
-    }
-
-    private suspend fun maintainConnections() {
-
-        val current =
-            connections.toMap()
-
-        for (entry in current) {
-
-            val id =
-                entry.key
-
-            val connection =
-                entry.value
-
-            try {
-
-                if (
-                    !connection.isConnected()
-                ) {
-
-                    updateState(
-                        id,
-                        false,
-                        null
-                    )
-
-                    val receiver =
-                        receivers[id]
-
-                    if (receiver != null) {
-
-                        connectToReceiver(
-                            receiver
-                        )
-                    }
-
-                    continue
-                }
-
-                val latency =
-                    withContext(
-                        Dispatchers.IO
-                    ) {
-                        connection.ping()
-                    }
-
-                if (latency != null) {
-
-                    updateState(
-                        id,
-                        true,
-                        latency
-                    )
-
-                } else {
-
-                    /*
-                     * No cerramos el WebSocket
-                     * solamente porque un PING
-                     * no respondió.
-                     */
-                    updateState(
-                        id,
-                        connection.isConnected(),
-                        null
-                    )
-                }
-
-            } catch (_: Exception) {
-
-                updateState(
-                    id,
-                    false,
-                    null
-                )
+                total++
 
                 try {
-                    connection.disconnect()
-                } catch (_: Exception) {
-                }
 
-                connections.remove(
-                    id
-                )
+                    if (connection.send(command)) {
+                        successCount++
+                    }
 
-                val receiver =
-                    receivers[id]
+                } catch (e: Exception) {
 
-                if (receiver != null) {
-
-                    connectToReceiver(
-                        receiver
+                    Log.e(
+                        TAG,
+                        "Error enviando a $id",
+                        e
                     )
                 }
             }
+
+            launch(
+                Dispatchers.Main
+            ) {
+                callback(
+                    successCount,
+                    total
+                )
+            }
         }
+    }
+
+    suspend fun loadVideoAndWaitReady(
+        videoId: String
+    ): Boolean {
+
+        val cleanVideoId =
+            videoId.trim()
+
+        if (cleanVideoId.isEmpty()) {
+            return false
+        }
+
+        val activeConnections =
+            connections.values
+                .filter {
+                    it.isConnected()
+                }
+
+        if (activeConnections.isEmpty()) {
+
+            updateDiagnostic(
+                "No hay receptores conectados"
+            )
+
+            return false
+        }
+
+        updateDiagnostic(
+            "Cargando video en ${activeConnections.size} receptor(es)..."
+        )
+
+        val results =
+            activeConnections.map { connection ->
+
+                serviceScope.asyncResult {
+
+                    try {
+                        connection
+                            .loadVideoAndWaitReady(
+                                cleanVideoId
+                            )
+                    } catch (e: Exception) {
+
+                        Log.e(
+                            TAG,
+                            "Error cargando $cleanVideoId",
+                            e
+                        )
+
+                        false
+                    }
+                }
+            }
+
+        val readyCount =
+            results.count {
+                it.await()
+            }
+
+        val success =
+            readyCount ==
+                    activeConnections.size
+
+        if (success) {
+
+            updateDiagnostic(
+                "VIDEO READY — $cleanVideoId"
+            )
+
+        } else {
+
+            updateDiagnostic(
+                "VIDEO READY: $readyCount/"
+                        + activeConnections.size
+            )
+        }
+
+        return success
     }
 
     fun getConnection(
         receiverId: String
     ): ReceiverConnection? {
-
         return connections[
             receiverId
         ]
@@ -538,88 +509,224 @@ class ControllerSyncService : Service() {
         ]?.isConnected() == true
     }
 
-    private fun updateState(
-        id: String,
-        connected: Boolean,
-        latency: Long?
+    fun disconnectReceiver(
+        receiverId: String
     ) {
 
-        val states =
-            _connectionStates.value
-                .toMutableMap()
-
-        states[id] =
-            connected
-
-        _connectionStates.value =
-            states
-
-        if (latency != null) {
-
-            val current =
-                _latencies.value
-                    .toMutableMap()
-
-            current[id] =
-                latency
-
-            _latencies.value =
-                current
-
-        } else {
-
-            val current =
-                _latencies.value
-                    .toMutableMap()
-
-            current.remove(id)
-
-            _latencies.value =
-                current
+        try {
+            connections[
+                receiverId
+            ]?.disconnect()
+        } catch (_: Exception) {
         }
+
+        connections.remove(
+            receiverId
+        )
+
+        updateConnectionState(
+            receiverId,
+            false
+        )
     }
 
-    private fun publishReceivers() {
+    fun stopService() {
 
-        _receivers.value =
-            receivers.values
+        maintenanceJob?.cancel()
+
+        connections.values.forEach {
+            try {
+                it.disconnect()
+            } catch (_: Exception) {
+            }
+        }
+
+        connections.clear()
+
+        stopSelf()
+    }
+
+    private fun startMaintenanceLoop() {
+
+        maintenanceJob?.cancel()
+
+        maintenanceJob =
+            serviceScope.launch {
+
+                while (isActive) {
+
+                    delay(
+                        PING_INTERVAL_MS
+                    )
+
+                    maintainConnections()
+                }
+            }
+    }
+
+    private suspend fun maintainConnections() {
+
+        registeredReceivers
+            .values
+            .forEach { receiver ->
+
+                val connection =
+                    connections[
+                        receiver.id
+                    ]
+
+                if (
+                    connection == null ||
+                    !connection.isConnected()
+                ) {
+
+                    connectToReceiver(
+                        receiver
+                    )
+
+                    return@forEach
+                }
+
+                val start =
+                    System.currentTimeMillis()
+
+                val success =
+                    try {
+                        connection.ping()
+                    } catch (e: Exception) {
+                        false
+                    }
+
+                val latency =
+                    System.currentTimeMillis()
+                            - start
+
+                if (success) {
+
+                    _latencies.updateValue(
+                        receiver.id,
+                        latency
+                    )
+
+                    updateConnectionState(
+                        receiver.id,
+                        true
+                    )
+
+                } else {
+
+                    Log.d(
+                        TAG,
+                        "Ping falló: ${receiver.name}"
+                    )
+
+                    try {
+                        connection.disconnect()
+                    } catch (_: Exception) {
+                    }
+
+                    connections.remove(
+                        receiver.id
+                    )
+
+                    updateConnectionState(
+                        receiver.id,
+                        false
+                    )
+                }
+            }
+    }
+
+    private fun updateConnectionState(
+        receiverId: String,
+        connected: Boolean
+    ) {
+
+        _connectionStates.update {
+            it.toMutableMap().apply {
+                this[
+                    receiverId
+                ] = connected
+            }
+        }
+
+        updateReceiverList()
+    }
+
+    private fun updateReceiverList() {
+
+        val updated =
+            registeredReceivers
+                .values
+                .map { receiver ->
+
+                    receiver.copy(
+                        connected =
+                            connections[
+                                receiver.id
+                            ]?.isConnected() == true,
+
+                        latency =
+                            _latencies.value[
+                                receiver.id
+                            ] ?: 0L
+                    )
+                }
                 .sortedBy {
                     it.name
                 }
+
+        _receivers.value =
+            updated
+    }
+
+    private fun updateDiagnostic(
+        message: String
+    ) {
+
+        _diagnostic.value =
+            message
+
+        Log.d(
+            TAG,
+            message
+        )
     }
 
     private fun createNotificationChannel() {
 
         if (
-            android.os.Build.VERSION.SDK_INT >=
-            android.os.Build.VERSION_CODES.O
+            Build.VERSION.SDK_INT <
+            Build.VERSION_CODES.O
         ) {
-
-            val manager =
-                getSystemService(
-                    NotificationManager::class.java
-                )
-
-            val channel =
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "YG Sync",
-                    NotificationManager
-                        .IMPORTANCE_LOW
-                )
-
-            channel.description =
-                "Mantiene las conexiones de YG Sync activas"
-
-            manager.createNotificationChannel(
-                channel
-            )
+            return
         }
+
+        val manager =
+            getSystemService(
+                Context.NOTIFICATION_SERVICE
+            ) as NotificationManager
+
+        val channel =
+            NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager
+                    .IMPORTANCE_LOW
+            )
+
+        channel.description =
+            "Servicio de sincronización YG Sync"
+
+        channel.setShowBadge(false)
+
+        manager.createNotificationChannel(
+            channel
+        )
     }
 
-    private fun createNotification(
-        text: String
-    ): Notification {
+    private fun createNotification():
+            Notification {
 
         return NotificationCompat
             .Builder(
@@ -630,62 +737,43 @@ class ControllerSyncService : Service() {
                 "YG Sync Controller"
             )
             .setContentText(
-                text
+                "Controlando receptores"
             )
             .setSmallIcon(
-                android.R.drawable
-                    .stat_sys_data_bluetooth
+                android.R.drawable.ic_media_play
             )
             .setOngoing(true)
             .setCategory(
-                NotificationCompat
-                    .CATEGORY_SERVICE
+                NotificationCompat.CATEGORY_SERVICE
             )
             .build()
     }
 
-    private fun stopService() {
-
-        for (connection in connections.values) {
-
-            try {
-                connection.disconnect()
-            } catch (_: Exception) {
-            }
-        }
-
-        connections.clear()
-
-        _connectionStates.value =
-            emptyMap()
-
-        _latencies.value =
-            emptyMap()
-
-        stopForeground(
-            STOP_FOREGROUND_REMOVE
-        )
-
-        stopSelf()
-    }
-
     override fun onDestroy() {
 
-        for (connection in connections.values) {
+        Log.d(
+            TAG,
+            "onDestroy()"
+        )
 
+        maintenanceJob?.cancel()
+
+        connections.values.forEach {
             try {
-                connection.disconnect()
+                it.disconnect()
             } catch (_: Exception) {
             }
         }
 
         connections.clear()
 
-        serviceScope.cancel()
+        _started.value =
+            false
 
         instance = null
 
-        _started.value = false
+        serviceScope.coroutineContext
+            .cancel()
 
         super.onDestroy()
     }
@@ -694,5 +782,25 @@ class ControllerSyncService : Service() {
         intent: Intent?
     ): IBinder? {
         return null
+    }
+
+    private fun <T> CoroutineScope.asyncResult(
+        block: suspend () -> T
+    ): kotlinx.coroutines.Deferred<T> {
+        return kotlinx.coroutines.async(
+            Dispatchers.IO
+        ) {
+            block()
+        }
+    }
+
+    private fun <K, V> MutableStateFlow<Map<K, V>>.updateValue(
+        key: K,
+        value: V
+    ) {
+        this.value =
+            this.value.toMutableMap().apply {
+                this[key] = value
+            }
     }
 }
