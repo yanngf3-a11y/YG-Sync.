@@ -93,844 +93,1430 @@ private val YgMuted = Color(0xFF718096)
 
 class MainActivity : ComponentActivity() {
 
-    private val notificationPermissionLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) {
-            startSyncService()
-        }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        if (
-            Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(
-                Manifest.permission.POST_NOTIFICATIONS
-            )
-        } else {
-            startSyncService()
-        }
-
-        setContent {
-            MaterialTheme {
-                YgSyncApp(this)
-            }
-        }
+private val notificationPermissionLauncher =
+    registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        startSyncService()
     }
 
-    private fun startSyncService() {
-        val intent = Intent(
-            this,
-            ControllerSyncService::class.java
-        )
+override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
 
-        try {
-            startForegroundService(intent)
-        } catch (_: Exception) {
-            startService(intent)
+    if (
+        Build.VERSION.SDK_INT >= 33 &&
+        checkSelfPermission(
+            Manifest.permission.POST_NOTIFICATIONS
+        ) != PackageManager.PERMISSION_GRANTED
+    ) {
+        notificationPermissionLauncher.launch(
+            Manifest.permission.POST_NOTIFICATIONS
+        )
+    } else {
+        startSyncService()
+    }
+
+    setContent {
+        MaterialTheme {
+            YgSyncApp(this)
         }
     }
 }
 
-@Composable
-private fun YgSyncApp(
-    context: Context
-) {
-    val viewModel: YgYouTubeViewModel = viewModel(
-        factory = YgYouTubeViewModelFactory(context)
+private fun startSyncService() {
+    val intent = Intent(
+        this,
+        ControllerSyncService::class.java
     )
 
-    val uiState by viewModel.uiState.collectAsState()
-
-    var selectedTab by remember {
-        mutableIntStateOf(0)
+    try {
+        startForegroundService(intent)
+    } catch (_: Exception) {
+        startService(intent)
     }
+}
 
-    var selectedVideo by remember {
-        mutableStateOf<YgYouTubeResult?>(null)
-    }
+}
 
-    var receivers by remember {
-        mutableStateOf<List<Receiver>>(emptyList())
-    }
+@Composable
+private fun YgSyncApp(context: Context) {
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            val service = ControllerSyncService.getInstance()
+val viewModel: YgYouTubeViewModel = viewModel(
+    factory = YgYouTubeViewModelFactory(context)
+)
 
-            if (service != null) {
-                receivers = service.receiverList.value
-            }
+val uiState by viewModel.uiState.collectAsState()
 
-            delay(3000)
+var selectedTab by remember {
+    mutableIntStateOf(0)
+}
+
+var selectedVideo by remember {
+    mutableStateOf<YgYouTubeResult?>(null)
+}
+
+var receivers by remember {
+    mutableStateOf<List<Receiver>>(emptyList())
+}
+
+LaunchedEffect(Unit) {
+    while (true) {
+        val service =
+            ControllerSyncService.getInstance()
+
+        if (service != null) {
+            receivers =
+                service.receiverList.value
         }
-    }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = YgBackground
+        delay(3000)
+    }
+}
+
+Surface(
+    modifier = Modifier.fillMaxSize(),
+    color = YgBackground
+) {
+    Column(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
         ) {
+            when (selectedTab) {
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
+                0 -> HomeScreen(
+                    uiState = uiState,
+                    onQueryChange = viewModel::setQuery,
+                    onSearch = viewModel::search,
+                    onClear = viewModel::clearSearch,
+                    onVideoClick = { video ->
+                        selectedVideo = video
+                        sendVideoToReceivers(
+                            context,
+                            video
+                        )
+                    }
+                )
 
-                when (selectedTab) {
+                1 -> SearchScreen(
+                    uiState = uiState,
+                    onQueryChange = viewModel::setQuery,
+                    onSearch = viewModel::search,
+                    onClear = viewModel::clearSearch,
+                    onVideoClick = { video ->
+                        selectedVideo = video
+                        sendVideoToReceivers(
+                            context,
+                            video
+                        )
+                    }
+                )
 
-                    0 -> HomeScreen(
-                        uiState = uiState,
-                        onQueryChange = viewModel::setQuery,
-                        onSearch = viewModel::search,
-                        onClear = viewModel::clearSearch,
-                        onVideoClick = { video ->
-                            selectedVideo = video
+                2 -> LibraryScreen(
+                    selectedVideo
+                )
 
-                            sendVideoToReceivers(
-                                context = context,
-                                video = video
-                            )
+                3 -> DevicesScreen(
+                    receivers = receivers,
+                    onRefresh = {
+                        val service =
+                            ControllerSyncService
+                                .getInstance()
+
+                        if (service != null) {
+                            receivers =
+                                service.receiverList.value
                         }
-                    )
+                    }
+                )
 
-                    1 -> SearchScreen(
-                        uiState = uiState,
-                        onQueryChange = viewModel::setQuery,
-                        onSearch = viewModel::search,
-                        onClear = viewModel::clearSearch,
-                        onVideoClick = { video ->
-                            selectedVideo = video
+                4 -> TechnicalScreen(
+                    receivers = receivers,
+                    onRefresh = {
+                        val service =
+                            ControllerSyncService
+                                .getInstance()
 
-                            sendVideoToReceivers(
-                                context = context,
-                                video = video
-                            )
+                        if (service != null) {
+                            receivers =
+                                service.receiverList.value
                         }
-                    )
+                    }
+                )
 
-                    2 -> LibraryScreen(
-                        selectedVideo = selectedVideo
-                    )
-
-                    3 -> DevicesScreen(
-                        receivers = receivers,
-                        onRefresh = {
-                            val service =
-                                ControllerSyncService.getInstance()
-
-                            if (service != null) {
-                                receivers =
-                                    service.receiverList.value
-                            }
-                        }
-                    )
-
-                    4 -> TechnicalScreen(
-                        receivers = receivers,
-                        onRefresh = {
-                            val service =
-                                ControllerSyncService.getInstance()
-
-                            if (service != null) {
-                                receivers =
-                                    service.receiverList.value
-                            }
-                        }
-                    )
-
-                    5 -> SettingsScreen()
-                }
+                5 -> SettingsScreen()
             }
-
-            BottomNavigationBar(
-                selectedTab = selectedTab,
-                onTabSelected = {
-                    selectedTab = it
-                }
-            )
         }
+
+        BottomNavigationBar(
+            selectedTab = selectedTab,
+            onTabSelected = {
+                selectedTab = it
+            }
+        )
     }
+}
+
 }
 
 @Composable
 private fun HomeScreen(
-    uiState: YgYouTubeUiState,
-    onQueryChange: (String) -> Unit,
-    onSearch: () -> Unit,
-    onClear: () -> Unit,
-    onVideoClick: (YgYouTubeResult) -> Unit
+uiState: YgYouTubeUiState,
+onQueryChange: (String) -> Unit,
+onSearch: () -> Unit,
+onClear: () -> Unit,
+onVideoClick: (YgYouTubeResult) -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
+Column(
+modifier = Modifier.fillMaxSize()
+) {
+Header()
 
-        Header()
+    SearchBar(
+        query = uiState.query,
+        onQueryChange = onQueryChange,
+        onSearch = onSearch,
+        onClear = onClear
+    )
 
-        SearchBar(
-            query = uiState.query,
-            onQueryChange = onQueryChange,
-            onSearch = onSearch,
-            onClear = onClear
+    if (uiState.isLoading) {
+
+        LoadingView()
+
+    } else if (uiState.error != null) {
+
+        ErrorView(uiState.error)
+
+    } else if (uiState.results.isNotEmpty()) {
+
+        Text(
+            text = "Resultados",
+            modifier = Modifier.padding(
+                horizontal = 18.dp,
+                vertical = 10.dp
+            ),
+            fontWeight = FontWeight.Bold,
+            color = YgText
         )
 
-        if (uiState.isLoading) {
+        VideoList(
+            results = uiState.results,
+            onVideoClick = onVideoClick
+        )
 
-            LoadingView()
+    } else {
 
-        } else if (uiState.error != null) {
-
-            ErrorView(
-                message = uiState.error
-            )
-
-        } else if (uiState.results.isNotEmpty()) {
-
-            Text(
-                text = "Resultados",
-                modifier = Modifier.padding(
-                    horizontal = 18.dp,
-                    vertical = 10.dp
-                ),
-                fontWeight = FontWeight.Bold,
-                color = YgText
-            )
-
-            VideoList(
-                results = uiState.results,
-                onVideoClick = onVideoClick
-            )
-
-        } else {
-
-            WelcomeView()
-        }
+        WelcomeView()
     }
+}
+
 }
 
 @Composable
 private fun SearchScreen(
-    uiState: YgYouTubeUiState,
-    onQueryChange: (String) -> Unit,
-    onSearch: () -> Unit,
-    onClear: () -> Unit,
-    onVideoClick: (YgYouTubeResult) -> Unit
+uiState: YgYouTubeUiState,
+onQueryChange: (String) -> Unit,
+onSearch: () -> Unit,
+onClear: () -> Unit,
+onVideoClick: (YgYouTubeResult) -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
+Column(
+modifier = Modifier.fillMaxSize()
+) {
+Header(title = "Buscar")
 
-        Header(
-            title = "Buscar"
+    SearchBar(
+        query = uiState.query,
+        onQueryChange = onQueryChange,
+        onSearch = onSearch,
+        onClear = onClear
+    )
+
+    if (uiState.isLoading) {
+
+        LoadingView()
+
+    } else if (uiState.error != null) {
+
+        ErrorView(uiState.error)
+
+    } else if (uiState.results.isNotEmpty()) {
+
+        VideoList(
+            results = uiState.results,
+            onVideoClick = onVideoClick
         )
 
-        SearchBar(
-            query = uiState.query,
-            onQueryChange = onQueryChange,
-            onSearch = onSearch,
-            onClear = onClear
+    } else {
+
+        Text(
+            text = "Busca canciones, artistas, videos o géneros.",
+            color = YgMuted,
+            modifier = Modifier.padding(24.dp)
         )
-
-        if (uiState.isLoading) {
-
-            LoadingView()
-
-        } else if (uiState.error != null) {
-
-            ErrorView(
-                message = uiState.error
-            )
-
-        } else if (uiState.results.isNotEmpty()) {
-
-            VideoList(
-                results = uiState.results,
-                onVideoClick = onVideoClick
-            )
-
-        } else {
-
-            Text(
-                text = "Busca canciones, artistas, videos o géneros.",
-                color = YgMuted,
-                modifier = Modifier.padding(24.dp)
-            )
-        }
     }
+}
+
 }
 
 @Composable
 private fun Header(
-    title: String = "YG Sync"
+title: String = "YG Sync"
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                start = 20.dp,
-                end = 12.dp,
-                top = 18.dp,
-                bottom = 8.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically
+Row(
+modifier = Modifier
+.fillMaxWidth()
+.padding(
+start = 20.dp,
+end = 12.dp,
+top = 18.dp,
+bottom = 8.dp
+),
+verticalAlignment = Alignment.CenterVertically
+) {
+
+    Column(
+        modifier = Modifier.weight(1f)
     ) {
+        Text(
+            text = title,
+            color = YgText,
+            fontWeight = FontWeight.ExtraBold,
+            style = MaterialTheme.typography.headlineSmall
+        )
+
+        Text(
+            text = "YouTube sincronizado",
+            color = YgMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        YgBlue,
+                        YgLightBlue
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Tv,
+            contentDescription = "Pantallas",
+            tint = Color.White
+        )
+    }
+}
+
+}
+
+@Composable
+private fun SearchBar(
+query: String,
+onQueryChange: (String) -> Unit,
+onSearch: () -> Unit,
+onClear: () -> Unit
+) {
+Row(
+modifier = Modifier
+.fillMaxWidth()
+.padding(
+horizontal = 16.dp,
+vertical = 8.dp
+),
+verticalAlignment = Alignment.CenterVertically
+) {
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier.weight(1f),
+        singleLine = true,
+        shape = RoundedCornerShape(18.dp),
+        placeholder = {
+            Text("Buscar en YouTube...")
+        },
+        leadingIcon = {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = "Buscar"
+            )
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = onClear
+                ) {
+                    Icon(
+                        Icons.Default.Clear,
+                        contentDescription = "Limpiar"
+                    )
+                }
+            }
+        }
+    )
+
+    Spacer(
+        modifier = Modifier.width(8.dp)
+    )
+
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .clip(
+                RoundedCornerShape(17.dp)
+            )
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        YgBlue,
+                        YgLightBlue
+                    )
+                )
+            )
+            .clickable {
+                onSearch()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Default.Search,
+            contentDescription = "Buscar",
+            tint = Color.White
+        )
+    }
+}
+
+}
+
+@Composable
+private fun VideoList(
+results: List<YgYouTubeResult>,
+onVideoClick: (YgYouTubeResult) -> Unit
+) {
+LazyColumn(
+modifier = Modifier.fillMaxSize(),
+contentPadding = PaddingValues(
+start = 14.dp,
+end = 14.dp,
+bottom = 24.dp
+),
+verticalArrangement =
+Arrangement.spacedBy(12.dp)
+) {
+items(
+results,
+key = { it.videoId }
+) { result ->
+
+        VideoCard(
+            result = result,
+            onClick = {
+                onVideoClick(result)
+            }
+        )
+    }
+}
+
+}
+
+@Composable
+private fun VideoCard(
+result: YgYouTubeResult,
+onClick: () -> Unit
+) {
+Card(
+modifier = Modifier
+.fillMaxWidth()
+.clickable {
+onClick()
+},
+shape = RoundedCornerShape(18.dp),
+colors = CardDefaults.cardColors(
+containerColor = Color.White
+),
+elevation =
+CardDefaults.cardElevation(
+defaultElevation = 2.dp
+)
+) {
+
+    Row(
+        modifier = Modifier.padding(10.dp)
+    ) {
+
+        Box(
+            modifier = Modifier
+                .width(150.dp)
+                .height(86.dp)
+                .clip(
+                    RoundedCornerShape(12.dp)
+                )
+        ) {
+
+            AsyncImage(
+                model = result.thumbnailUrl,
+                contentDescription =
+                    result.title,
+                modifier =
+                    Modifier.fillMaxSize(),
+                contentScale =
+                    ContentScale.Crop
+            )
+
+            if (result.duration.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .align(
+                            Alignment.BottomEnd
+                        )
+                        .padding(5.dp),
+                    shape =
+                        RoundedCornerShape(5.dp),
+                    color =
+                        Color.Black.copy(
+                            alpha = 0.78f
+                        )
+                ) {
+                    Text(
+                        text = result.duration,
+                        color = Color.White,
+                        style =
+                            MaterialTheme
+                                .typography
+                                .labelSmall,
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 5.dp,
+                                vertical = 2.dp
+                            )
+                    )
+                }
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.width(12.dp)
+        )
 
         Column(
             modifier = Modifier.weight(1f)
         ) {
 
             Text(
-                text = title,
+                text = result.title,
                 color = YgText,
-                fontWeight = FontWeight.ExtraBold,
-                style = MaterialTheme.typography.headlineSmall
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow =
+                    TextOverflow.Ellipsis,
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodyLarge
+            )
+
+            Spacer(
+                modifier = Modifier.height(5.dp)
             )
 
             Text(
-                text = "YouTube sincronizado",
+                text = result.channelName,
                 color = YgMuted,
-                style = MaterialTheme.typography.bodySmall
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodySmall
             )
-        }
-
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            YgBlue,
-                            YgLightBlue
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-
-            Icon(
-                imageVector = Icons.Default.Tv,
-                contentDescription = "Pantallas",
-                tint = Color.White
-            )
-        }
-    }
-}
-
-@Composable
-private fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onSearch: () -> Unit,
-    onClear: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = 16.dp,
-                vertical = 8.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            shape = RoundedCornerShape(18.dp),
-            placeholder = {
-                Text("Buscar en YouTube...")
-            },
-            leadingIcon = {
-                Icon(
-                    Icons.Default.Search,
-                    contentDescription = "Buscar"
-                )
-            },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(
-                        onClick = onClear
-                    ) {
-                        Icon(
-                            Icons.Default.Clear,
-                            contentDescription = "Limpiar"
-                        )
-                    }
-                }
-            }
-        )
-
-        Spacer(
-            modifier = Modifier.width(8.dp)
-        )
-
-        Box(
-            modifier = Modifier
-                .size(54.dp)
-                .clip(RoundedCornerShape(17.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            YgBlue,
-                            YgLightBlue
-                        )
-                    )
-                )
-                .clickable {
-                    onSearch()
-                },
-            contentAlignment = Alignment.Center
-        ) {
-
-            Icon(
-                Icons.Default.Search,
-                contentDescription = "Buscar",
-                tint = Color.White
-            )
-        }
-    }
-}
-
-@Composable
-private fun VideoList(
-    results: List<YgYouTubeResult>,
-    onVideoClick: (YgYouTubeResult) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 14.dp,
-            end = 14.dp,
-            bottom = 24.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-
-        items(
-            items = results,
-            key = {
-                it.videoId
-            }
-        ) { result ->
-
-            VideoCard(
-                result = result,
-                onClick = {
-                    onVideoClick(result)
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun VideoCard(
-    result: YgYouTubeResult,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                onClick()
-            },
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp
-        )
-    ) {
-
-        Row(
-            modifier = Modifier.padding(10.dp)
-        ) {
-
-            Box(
-                modifier = Modifier
-                    .width(150.dp)
-                    .height(86.dp)
-                    .clip(
-                        RoundedCornerShape(12.dp)
-                    )
-            ) {
-
-                AsyncImage(
-                    model = result.thumbnailUrl,
-                    contentDescription = result.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-
-                if (result.duration.isNotEmpty()) {
-
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(5.dp),
-                        shape = RoundedCornerShape(5.dp),
-                        color = Color.Black.copy(
-                            alpha = 0.78f
-                        )
-                    ) {
-
-                        Text(
-                            text = result.duration,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(
-                                horizontal = 5.dp,
-                                vertical = 2.dp
-                            )
-                        )
-                    }
-                }
-            }
 
             Spacer(
-                modifier = Modifier.width(12.dp)
+                modifier = Modifier.height(6.dp)
             )
 
-            Column(
-                modifier = Modifier.weight(1f)
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
             ) {
 
-                Text(
-                    text = result.title,
-                    color = YgText,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-
-                Spacer(
-                    modifier = Modifier.height(5.dp)
-                )
-
-                Text(
-                    text = result.channelName,
-                    color = YgMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall
-                )
-
-                Spacer(
-                    modifier = Modifier.height(6.dp)
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        YgBlue,
-                                        YgLightBlue
-                                    )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    YgBlue,
+                                    YgLightBlue
                                 )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Reproducir",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    Spacer(
-                        modifier = Modifier.width(6.dp)
-                    )
-
-                    Text(
-                        text = "Sincronizar",
-                        color = YgBlue,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.labelMedium
+                            )
+                        ),
+                    contentAlignment =
+                        Alignment.Center
+                ) {
+                    Icon(
+                        imageVector =
+                            Icons.Default.PlayArrow,
+                        contentDescription =
+                            "Reproducir",
+                        tint = Color.White,
+                        modifier =
+                            Modifier.size(18.dp)
                     )
                 }
+
+                Spacer(
+                    modifier = Modifier.width(6.dp)
+                )
+
+                Text(
+                    text = "Sincronizar",
+                    color = YgBlue,
+                    fontWeight = FontWeight.Bold,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelMedium
+                )
             }
         }
     }
+}
+
 }
 
 @Composable
 private fun WelcomeView() {
-    Column(
+Column(
+modifier = Modifier
+.fillMaxWidth()
+.padding(28.dp),
+horizontalAlignment =
+Alignment.CenterHorizontally
+) {
+
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-
-        Box(
-            modifier = Modifier
-                .size(82.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            YgBlue,
-                            YgLightBlue
-                        )
+            .size(82.dp)
+            .clip(CircleShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        YgBlue,
+                        YgLightBlue
                     )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-
-            Icon(
-                Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(46.dp)
-            )
-        }
-
-        Spacer(
-            modifier = Modifier.height(18.dp)
-        )
-
-        Text(
-            text = "¿Qué quieres reproducir?",
-            color = YgText,
-            fontWeight = FontWeight.ExtraBold,
-            style = MaterialTheme.typography.headlineSmall
-        )
-
-        Spacer(
-            modifier = Modifier.height(8.dp)
-        )
-
-        Text(
-            text = "Busca una canción, artista, video o género y sincronízalo en todas tus pantallas.",
-            color = YgMuted,
-            style = MaterialTheme.typography.bodyMedium
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Default.PlayArrow,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(46.dp)
         )
     }
+
+    Spacer(
+        modifier = Modifier.height(18.dp)
+    )
+
+    Text(
+        text = "¿Qué quieres reproducir?",
+        color = YgText,
+        fontWeight = FontWeight.ExtraBold,
+        style =
+            MaterialTheme.typography.headlineSmall
+    )
+
+    Spacer(
+        modifier = Modifier.height(8.dp)
+    )
+
+    Text(
+        text =
+            "Busca una canción, artista, video o género y sincronízalo en todas tus pantallas.",
+        color = YgMuted,
+        style =
+            MaterialTheme.typography.bodyMedium
+    )
+}
+
 }
 
 @Composable
 private fun LoadingView() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(40.dp),
-        contentAlignment = Alignment.Center
-    ) {
-
-        CircularProgressIndicator(
-            color = YgBlue
-        )
-    }
+Box(
+modifier = Modifier
+.fillMaxWidth()
+.padding(40.dp),
+contentAlignment = Alignment.Center
+) {
+CircularProgressIndicator(
+color = YgBlue
+)
+}
 }
 
 @Composable
 private fun ErrorView(
-    message: String
+message: String
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+Column(
+modifier = Modifier
+.fillMaxWidth()
+.padding(24.dp),
+horizontalAlignment =
+Alignment.CenterHorizontally
+) {
 
-        Text(
-            text = "No se pudo realizar la búsqueda",
-            color = YgText,
-            fontWeight = FontWeight.Bold
-        )
+    Text(
+        text =
+            "No se pudo realizar la búsqueda",
+        color = YgText,
+        fontWeight = FontWeight.Bold
+    )
 
-        Spacer(
-            modifier = Modifier.height(6.dp)
-        )
+    Spacer(
+        modifier = Modifier.height(6.dp)
+    )
 
-        Text(
-            text = message,
-            color = YgMuted
-        )
-    }
+    Text(
+        text = message,
+        color = YgMuted
+    )
+}
+
 }
 
 @Composable
 private fun LibraryScreen(
-    selectedVideo: YgYouTubeResult?
+selectedVideo: YgYouTubeResult?
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
+Column(
+modifier = Modifier.fillMaxSize()
+) {
 
-        Header(
-            title = "Biblioteca"
+    Header(
+        title = "Biblioteca"
+    )
+
+    if (selectedVideo == null) {
+
+        Text(
+            text =
+                "Todavía no hay una reproducción seleccionada.",
+            color = YgMuted,
+            modifier =
+                Modifier.padding(24.dp)
         )
 
-        if (selectedVideo == null) {
+    } else {
 
-            Text(
-                text = "Todavía no hay una reproducción seleccionada.",
-                color = YgMuted,
-                modifier = Modifier.padding(24.dp)
+        Text(
+            text = "Última reproducción",
+            color = YgText,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(
+                horizontal = 20.dp,
+                vertical = 12.dp
             )
+        )
 
-        } else {
-
-            Text(
-                text = "Última reproducción",
-                color = YgText,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(
-                    horizontal = 20.dp,
-                    vertical = 12.dp
-                )
-            )
-
-            VideoCard(
-                result = selectedVideo,
-                onClick = {}
-            )
-        }
+        VideoCard(
+            result = selectedVideo,
+            onClick = {}
+        )
     }
+}
+
 }
 
 @Composable
 private fun DevicesScreen(
-    receivers: List<Receiver>,
-    onRefresh: () -> Unit
+receivers: List<Receiver>,
+onRefresh: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize()
+Column(
+modifier = Modifier.fillMaxSize()
+) {
+
+    Header(
+        title = "Pantallas"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 18.dp
+            ),
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
 
-        Header(
-            title = "Pantallas"
+        Text(
+            text =
+                "${receivers.size} pantallas",
+            modifier =
+                Modifier.weight(1f),
+            color = YgMuted
         )
 
-        Row(
+        TextButton(
+            onClick = onRefresh
+        ) {
+            Text(
+                text = "Actualizar",
+                color = YgBlue
+            )
+        }
+    }
+
+    if (receivers.isEmpty()) {
+
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(30.dp),
+            horizontalAlignment =
+                Alignment.CenterHorizontally
         ) {
 
-            Text(
-                text = "${receivers.size} pantallas",
-                modifier = Modifier.weight(1f),
-                color = YgMuted
+            Icon(
+                Icons.Default.Tv,
+                contentDescription = null,
+                tint = YgMuted,
+                modifier = Modifier.size(48.dp)
             )
 
-            TextButton(
-                onClick = onRefresh
-            ) {
-                Text(
-                    text = "Actualizar",
-                    color = YgBlue
-                )
-            }
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+
+            Text(
+                text =
+                    "No hay pantallas conectadas",
+                color = YgText,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text =
+                    "Las pantallas SmartTube aparecerán aquí.",
+                color = YgMuted
+            )
         }
 
-        if (receivers.isEmpty()) {
+    } else {
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(30.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-
-                Icon(
-                    Icons.Default.Tv,
-                    contentDescription = null,
-                    tint = YgMuted,
-                    modifier = Modifier.size(48.dp)
-                )
-
-                Spacer(
-                    modifier = Modifier.height(12.dp)
-                )
-
-                Text(
-                    text = "No hay pantallas conectadas",
-                    color = YgText,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = "Las pantallas SmartTube aparecerán aquí.",
-                    color = YgMuted
-                )
-            }
-
-        } else {
-
-            LazyColumn(
-                contentPadding = PaddingValues(
+        LazyColumn(
+            contentPadding =
+                PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     bottom = 24.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            verticalArrangement =
+                Arrangement.spacedBy(10.dp)
+        ) {
+            items(
+                receivers,
+                key = { it.id }
+            ) { receiver ->
 
-                items(
-                    receivers,
-                    key = {
-                        it.id
-                    }
-                ) { receiver ->
-
-                    ReceiverCard(
-                        receiver = receiver
-                    )
-                }
+                ReceiverCard(
+                    receiver = receiver
+                )
             }
         }
     }
 }
 
+}
+
 @Composable
 private fun ReceiverCard(
-    receiver: Receiver
+receiver: Receiver
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
+Card(
+modifier = Modifier.fillMaxWidth(),
+shape = RoundedCornerShape(18.dp),
+colors =
+CardDefaults.cardColors(
+containerColor = Color.White
+),
+elevation =
+CardDefaults.cardElevation(
+defaultElevation = 2.dp
+)
+) {
+
+    Row(
+        modifier = Modifier.padding(16.dp),
+        verticalAlignment =
+            Alignment.CenterVertically
+    ) {
+
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .clip(CircleShape)
+                .background(
+                    if (receiver.connected) {
+                        Color(0xFFE8F5E9)
+                    } else {
+                        Color(0xFFFFF3E0)
+                    }
+                ),
+            contentAlignment =
+                Alignment.Center
+        ) {
+
+            Icon(
+                Icons.Default.Tv,
+                contentDescription = null,
+                tint =
+                    if (receiver.connected) {
+                        Color(0xFF2E7D32)
+                    } else {
+                        Color(0xFFEF6C00)
+                    }
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.width(12.dp)
+        )
+
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+
+            Text(
+                text = receiver.name,
+                color = YgText,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = receiver.address,
+                color = YgMuted,
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodySmall
+            )
+        }
+
+        Text(
+            text =
+                if (receiver.connected) {
+                    "Conectada"
+                } else {
+                    "Desconectada"
+                },
+            color =
+                if (receiver.connected) {
+                    Color(0xFF2E7D32)
+                } else {
+                    Color(0xFFEF6C00)
+                },
+            fontWeight = FontWeight.Bold,
+            style =
+                MaterialTheme
+                    .typography
+                    .labelSmall
+        )
+    }
+}
+
+}
+
+@Composable
+private fun TechnicalScreen(
+receivers: List<Receiver>,
+onRefresh: () -> Unit
+) {
+var lastRefresh by remember {
+mutableStateOf<String?>(null)
+}
+
+val eventLog = remember {
+    mutableStateListOf<String>()
+}
+
+fun addLog(
+    message: String
+) {
+    val time =
+        SimpleDateFormat(
+            "HH:mm:ss",
+            Locale.getDefault()
+        ).format(Date())
+
+    eventLog.add(
+        0,
+        "$time  •  $message"
+    )
+
+    if (eventLog.size > 12) {
+        eventLog.removeAt(
+            eventLog.lastIndex
+        )
+    }
+}
+
+LaunchedEffect(receivers) {
+    if (receivers.isNotEmpty()) {
+        addLog(
+            "Pantallas detectadas: ${receivers.size}"
+        )
+    }
+}
+
+Column(
+    modifier = Modifier.fillMaxSize()
+) {
+
+    Header(
+        title = "Técnico"
+    )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding =
+            PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 4.dp,
+                bottom = 24.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(12.dp)
+    ) {
+
+        item {
+            TechnicalStatusCard(
+                receiverCount =
+                    receivers.size
+            )
+        }
+
+        item {
+
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(10.dp)
+            ) {
+
+                Button(
+                    onClick = {
+
+                        onRefresh()
+
+                        lastRefresh =
+                            SimpleDateFormat(
+                                "HH:mm:ss",
+                                Locale.getDefault()
+                            ).format(Date())
+
+                        addLog(
+                            "Búsqueda de pantallas solicitada"
+                        )
+                    },
+                    modifier =
+                        Modifier.weight(1f),
+                    shape =
+                        RoundedCornerShape(13.dp),
+                    contentPadding =
+                        PaddingValues(
+                            horizontal = 12.dp,
+                            vertical = 10.dp
+                        ),
+                    colors =
+                        ButtonDefaults
+                            .buttonColors(
+                                containerColor =
+                                    YgBlue
+                            )
+                ) {
+
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription =
+                            null,
+                        modifier =
+                            Modifier.size(18.dp)
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.width(6.dp)
+                    )
+
+                    Text(
+                        text = "Buscar"
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+
+                        addLog(
+                            "Servicio: ${
+                                if (
+                                    ControllerSyncService
+                                        .getInstance() != null
+                                ) {
+                                    "ACTIVO"
+                                } else {
+                                    "NO DISPONIBLE"
+                                }
+                            }"
+                        )
+                    },
+                    modifier =
+                        Modifier.weight(0.72f),
+                    shape =
+                        RoundedCornerShape(13.dp),
+                    contentPadding =
+                        PaddingValues(
+                            horizontal = 10.dp,
+                            vertical = 10.dp
+                        )
+                ) {
+
+                    Icon(
+                        Icons.Default.Build,
+                        contentDescription =
+                            null,
+                        modifier =
+                            Modifier.size(17.dp)
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.width(5.dp)
+                    )
+
+                    Text(
+                        text = "Estado"
+                    )
+                }
+            }
+        }
+
+        item {
+
+            Text(
+                text = "Pantallas",
+                color = YgText,
+                fontWeight =
+                    FontWeight.ExtraBold,
+                style =
+                    MaterialTheme
+                        .typography
+                        .titleMedium
+            )
+        }
+
+        if (receivers.isEmpty()) {
+
+            item {
+                TechnicalEmptyCard()
+            }
+
+        } else {
+
+            items(
+                items = receivers,
+                key = {
+                    "technical_${it.id}"
+                }
+            ) { receiver ->
+
+                TechnicalReceiverCard(
+                    receiver = receiver,
+                    onTest = {
+
+                        addLog(
+                            "Prueba seleccionada → ${receiver.name}"
+                        )
+                    }
+                )
+            }
+        }
+
+        item {
+
+            TechnicalLogCard(
+                logs = eventLog,
+                lastRefresh = lastRefresh
+            )
+        }
+    }
+}
+
+}
+
+@Composable
+private fun TechnicalStatusCard(
+receiverCount: Int
+) {
+val serviceActive =
+ControllerSyncService
+.getInstance() != null
+
+Card(
+    modifier = Modifier.fillMaxWidth(),
+    shape =
+        RoundedCornerShape(18.dp),
+    colors =
+        CardDefaults.cardColors(
+            containerColor =
+                Color.White
         ),
-        elevation = CardDefaults.cardElevation(
+    elevation =
+        CardDefaults.cardElevation(
             defaultElevation = 2.dp
         )
+) {
+
+    Column(
+        modifier = Modifier.padding(16.dp)
     ) {
 
         Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (serviceActive) {
+                            Color(0xFFE8F5E9)
+                        } else {
+                            Color(0xFFFFEBEE)
+                        }
+                    ),
+                contentAlignment =
+                    Alignment.Center
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.Wifi,
+                    contentDescription =
+                        null,
+                    tint =
+                        if (serviceActive) {
+                            Color(0xFF2E7D32)
+                        } else {
+                            Color(0xFFC62828)
+                        },
+                    modifier =
+                        Modifier.size(21.dp)
+                )
+            }
+
+            Spacer(
+                modifier =
+                    Modifier.width(11.dp)
+            )
+
+            Column(
+                modifier =
+                    Modifier.weight(1f)
+            ) {
+
+                Text(
+                    text =
+                        "Estado general",
+                    color = YgText,
+                    fontWeight =
+                        FontWeight.ExtraBold
+                )
+
+                Text(
+                    text =
+                        if (serviceActive) {
+                            "Servicio de sincronización activo"
+                        } else {
+                            "Servicio no disponible"
+                        },
+                    color = YgMuted,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .bodySmall
+                )
+            }
+
+            Text(
+                text =
+                    if (serviceActive) {
+                        "ACTIVO"
+                    } else {
+                        "ERROR"
+                    },
+                color =
+                    if (serviceActive) {
+                        Color(0xFF2E7D32)
+                    } else {
+                        Color(0xFFC62828)
+                    },
+                fontWeight =
+                    FontWeight.Bold,
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelMedium
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(14.dp)
+        )
+
+        Row(
+            modifier =
+                Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.spacedBy(8.dp)
+        ) {
+
+            TechnicalMiniStatus(
+                title = "UDP",
+                value = "8766",
+                modifier =
+                    Modifier.weight(1f)
+            )
+
+            TechnicalMiniStatus(
+                title = "TCP",
+                value = "8765",
+                modifier =
+                    Modifier.weight(1f)
+            )
+
+            TechnicalMiniStatus(
+                title = "Pantallas",
+                value =
+                    receiverCount.toString(),
+                modifier =
+                    Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+}
+
+@Composable
+private fun TechnicalMiniStatus(
+title: String,
+value: String,
+modifier: Modifier
+) {
+Surface(
+modifier = modifier,
+shape =
+RoundedCornerShape(11.dp),
+color = YgBackground
+) {
+
+    Column(
+        modifier =
+            Modifier.padding(
+                horizontal = 9.dp,
+                vertical = 8.dp
+            ),
+        horizontalAlignment =
+            Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = title,
+            color = YgMuted,
+            style =
+                MaterialTheme
+                    .typography
+                    .labelSmall
+        )
+
+        Spacer(
+            modifier =
+                Modifier.height(2.dp)
+        )
+
+        Text(
+            text = value,
+            color = YgText,
+            fontWeight =
+                FontWeight.Bold,
+            style =
+                MaterialTheme
+                    .typography
+                    .bodyMedium
+        )
+    }
+}
+
+}
+
+@Composable
+private fun TechnicalReceiverCard(
+receiver: Receiver,
+onTest: () -> Unit
+) {
+Card(
+modifier =
+Modifier.fillMaxWidth(),
+shape =
+RoundedCornerShape(16.dp),
+colors =
+CardDefaults.cardColors(
+containerColor =
+Color.White
+),
+elevation =
+CardDefaults.cardElevation(
+defaultElevation = 1.dp
+)
+) {
+
+    Column(
+        modifier =
+            Modifier.padding(14.dp)
+    ) {
+
+        Row(
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
                     .clip(CircleShape)
                     .background(
                         if (receiver.connected) {
@@ -939,903 +1525,572 @@ private fun ReceiverCard(
                             Color(0xFFFFF3E0)
                         }
                     ),
-                contentAlignment = Alignment.Center
+                contentAlignment =
+                    Alignment.Center
             ) {
 
                 Icon(
                     Icons.Default.Tv,
-                    contentDescription = null,
-                    tint = if (receiver.connected) {
-                        Color(0xFF2E7D32)
-                    } else {
-                        Color(0xFFEF6C00)
-                    }
+                    contentDescription =
+                        null,
+                    tint =
+                        if (receiver.connected) {
+                            Color(0xFF2E7D32)
+                        } else {
+                            Color(0xFFEF6C00)
+                        },
+                    modifier =
+                        Modifier.size(20.dp)
                 )
             }
 
             Spacer(
-                modifier = Modifier.width(12.dp)
+                modifier =
+                    Modifier.width(10.dp)
             )
 
             Column(
-                modifier = Modifier.weight(1f)
+                modifier =
+                    Modifier.weight(1f)
             ) {
 
                 Text(
                     text = receiver.name,
                     color = YgText,
-                    fontWeight = FontWeight.Bold
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis
                 )
 
                 Text(
-                    text = receiver.address,
-                    color = YgMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            Text(
-                text = if (receiver.connected) {
-                    "Conectada"
-                } else {
-                    "Desconectada"
-                },
-                color = if (receiver.connected) {
-                    Color(0xFF2E7D32)
-                } else {
-                    Color(0xFFEF6C00)
-                },
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-    }
-}
-
-@Composable
-private fun TechnicalScreen(
-    receivers: List<Receiver>,
-    onRefresh: () -> Unit
-) {
-    var lastRefresh by remember {
-        mutableStateOf<String?>(null)
-    }
-
-    val eventLog = remember {
-        mutableStateListOf<String>()
-    }
-
-    fun addLog(message: String) {
-        val time = SimpleDateFormat(
-            "HH:mm:ss",
-            Locale.getDefault()
-        ).format(Date())
-
-        eventLog.add(
-            0,
-            "$time  •  $message"
-        )
-
-        if (eventLog.size > 12) {
-            eventLog.removeAt(eventLog.lastIndex)
-        }
-    }
-
-    LaunchedEffect(receivers) {
-        if (receivers.isNotEmpty()) {
-            addLog(
-                "Pantallas detectadas: ${receivers.size}"
-            )
-        }
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-
-        Header(
-            title = "Técnico"
-        )
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 4.dp,
-                bottom = 24.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-
-            item {
-
-                TechnicalStatusCard(
-                    receiverCount = receivers.size
-                )
-            }
-
-            item {
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-
-                    Button(
-                        onClick = {
-                            onRefresh()
-
-                            lastRefresh =
-                                SimpleDateFormat(
-                                    "HH:mm:ss",
-                                    Locale.getDefault()
-                                ).format(Date())
-
-                            addLog(
-                                "Búsqueda de pantallas solicitada"
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(13.dp),
-                        contentPadding = PaddingValues(
-                            horizontal = 12.dp,
-                            vertical = 10.dp
-                        ),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = YgBlue
-                        )
-                    ) {
-
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-
-                        Spacer(
-                            modifier = Modifier.width(6.dp)
-                        )
-
-                        Text(
-                            text = "Buscar"
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            addLog(
-                                "Servicio: ${
-                                    if (
-                                        ControllerSyncService
-                                            .getInstance() != null
-                                    ) {
-                                        "ACTIVO"
-                                    } else {
-                                        "NO DISPONIBLE"
-                                    }
-                                }"
-                            )
-                        },
-                        modifier = Modifier.weight(0.72f),
-                        shape = RoundedCornerShape(13.dp),
-                        contentPadding = PaddingValues(
-                            horizontal = 10.dp,
-                            vertical = 10.dp
-                        )
-                    ) {
-
-                        Icon(
-                            Icons.Default.Build,
-                            contentDescription = null,
-                            modifier = Modifier.size(17.dp)
-                        )
-
-                        Spacer(
-                            modifier = Modifier.width(5.dp)
-                        )
-
-                        Text(
-                            text = "Estado"
-                        )
-                    }
-                }
-            }
-
-            item {
-
-                Text(
-                    text = "Pantallas",
-                    color = YgText,
-                    fontWeight = FontWeight.ExtraBold,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-
-            if (receivers.isEmpty()) {
-
-                item {
-
-                    TechnicalEmptyCard()
-                }
-
-            } else {
-
-                items(
-                    items = receivers,
-                    key = {
-                        "technical_${it.id}"
-                    }
-                ) { receiver ->
-
-                    TechnicalReceiverCard(
-                        receiver = receiver,
-                        onTest = {
-                            addLog(
-                                "Prueba seleccionada → ${receiver.name}"
-                            )
-                        }
-                    )
-                }
-            }
-
-            item {
-
-                TechnicalLogCard(
-                    logs = eventLog,
-                    lastRefresh = lastRefresh
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TechnicalStatusCard(
-    receiverCount: Int
-) {
-    val serviceActive =
-        ControllerSyncService.getInstance() != null
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp
-        )
-    ) {
-
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (serviceActive) {
-                                Color(0xFFE8F5E9)
-                            } else {
-                                Color(0xFFFFEBEE)
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-
-                    Icon(
-                        imageVector = Icons.Default.Wifi,
-                        contentDescription = null,
-                        tint = if (serviceActive) {
-                            Color(0xFF2E7D32)
-                        } else {
-                            Color(0xFFC62828)
-                        },
-                        modifier = Modifier.size(21.dp)
-                    )
-                }
-
-                Spacer(
-                    modifier = Modifier.width(11.dp)
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-
-                    Text(
-                        text = "Estado general",
-                        color = YgText,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-
-                    Text(
-                        text = if (serviceActive) {
-                            "Servicio de sincronización activo"
-                        } else {
-                            "Servicio no disponible"
-                        },
-                        color = YgMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                Text(
-                    text = if (serviceActive) {
-                        "ACTIVO"
-                    } else {
-                        "ERROR"
-                    },
-                    color = if (serviceActive) {
-                        Color(0xFF2E7D32)
-                    } else {
-                        Color(0xFFC62828)
-                    },
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-
-            Spacer(
-                modifier = Modifier.height(14.dp)
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-
-                TechnicalMiniStatus(
-                    title = "UDP",
-                    value = "8766",
-                    modifier = Modifier.weight(1f)
-                )
-
-                TechnicalMiniStatus(
-                    title = "TCP",
-                    value = "8765",
-                    modifier = Modifier.weight(1f)
-                )
-
-                TechnicalMiniStatus(
-                    title = "Pantallas",
-                    value = receiverCount.toString(),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TechnicalMiniStatus(
-    title: String,
-    value: String,
-    modifier: Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(11.dp),
-        color = YgBackground
-    ) {
-
-        Column(
-            modifier = Modifier.padding(
-                horizontal = 9.dp,
-                vertical = 8.dp
-            ),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-
-            Text(
-                text = title,
-                color = YgMuted,
-                style = MaterialTheme.typography.labelSmall
-            )
-
-            Spacer(
-                modifier = Modifier.height(2.dp)
-            )
-
-            Text(
-                text = value,
-                color = YgText,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-}
-
-@Composable
-private fun TechnicalReceiverCard(
-    receiver: Receiver,
-    onTest: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 1.dp
-        )
-    ) {
-
-        Column(
-            modifier = Modifier.padding(14.dp)
-        ) {
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (receiver.connected) {
-                                Color(0xFFE8F5E9)
-                            } else {
-                                Color(0xFFFFF3E0)
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-
-                    Icon(
-                        Icons.Default.Tv,
-                        contentDescription = null,
-                        tint = if (receiver.connected) {
-                            Color(0xFF2E7D32)
-                        } else {
-                            Color(0xFFEF6C00)
-                        },
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(
-                    modifier = Modifier.width(10.dp)
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-
-                    Text(
-                        text = receiver.name,
-                        color = YgText,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Text(
-                        text = if (receiver.connected) {
+                    text =
+                        if (receiver.connected) {
                             "Conexión WebSocket disponible"
                         } else {
                             "Sin conexión activa"
                         },
-                        color = YgMuted,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
+                    color = YgMuted,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall
+                )
+            }
 
-                Text(
-                    text = if (receiver.connected) {
+            Text(
+                text =
+                    if (receiver.connected) {
                         "ONLINE"
                     } else {
                         "OFFLINE"
                     },
-                    color = if (receiver.connected) {
+                color =
+                    if (receiver.connected) {
                         Color(0xFF2E7D32)
                     } else {
                         Color(0xFFEF6C00)
                     },
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelSmall
+                fontWeight =
+                    FontWeight.Bold,
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelSmall
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(10.dp)
+        )
+
+        Row(
+            modifier =
+                Modifier.fillMaxWidth(),
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+
+            Column(
+                modifier =
+                    Modifier.weight(1f)
+            ) {
+
+                Text(
+                    text = "Dirección",
+                    color = YgMuted,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall
+                )
+
+                Text(
+                    text = receiver.address,
+                    color = YgText,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .bodySmall
                 )
             }
 
-            Spacer(
-                modifier = Modifier.height(10.dp)
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-
-                    Text(
-                        text = "Dirección",
-                        color = YgMuted,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-
-                    Text(
-                        text = receiver.address,
-                        color = YgText,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onTest,
-                    enabled = receiver.connected,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(
+            OutlinedButton(
+                onClick = onTest,
+                enabled =
+                    receiver.connected,
+                shape =
+                    RoundedCornerShape(10.dp),
+                contentPadding =
+                    PaddingValues(
                         horizontal = 13.dp,
                         vertical = 7.dp
                     )
-                ) {
-
-                    Text(
-                        text = "Probar"
-                    )
-                }
+            ) {
+                Text(
+                    text = "Probar"
+                )
             }
         }
     }
+}
+
 }
 
 @Composable
 private fun TechnicalEmptyCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        )
+Card(
+modifier =
+Modifier.fillMaxWidth(),
+shape =
+RoundedCornerShape(16.dp),
+colors =
+CardDefaults.cardColors(
+containerColor =
+Color.White
+)
+) {
+
+    Row(
+        modifier =
+            Modifier.padding(16.dp),
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
 
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Icon(
+            Icons.Default.Tv,
+            contentDescription =
+                null,
+            tint = YgMuted,
+            modifier =
+                Modifier.size(30.dp)
+        )
 
-            Icon(
-                Icons.Default.Tv,
-                contentDescription = null,
-                tint = YgMuted,
-                modifier = Modifier.size(30.dp)
+        Spacer(
+            modifier =
+                Modifier.width(12.dp)
+        )
+
+        Column {
+
+            Text(
+                text =
+                    "No se detectaron pantallas",
+                color = YgText,
+                fontWeight =
+                    FontWeight.Bold
             )
 
-            Spacer(
-                modifier = Modifier.width(12.dp)
+            Text(
+                text =
+                    "Pulsa «Buscar» para actualizar.",
+                color = YgMuted,
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodySmall
             )
-
-            Column {
-
-                Text(
-                    text = "No se detectaron pantallas",
-                    color = YgText,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = "Pulsa «Buscar» para actualizar.",
-                    color = YgMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
         }
     }
+}
+
 }
 
 @Composable
 private fun TechnicalLogCard(
-    logs: List<String>,
-    lastRefresh: String?
+logs: List<String>,
+lastRefresh: String?
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        )
+Card(
+modifier =
+Modifier.fillMaxWidth(),
+shape =
+RoundedCornerShape(16.dp),
+colors =
+CardDefaults.cardColors(
+containerColor =
+Color.White
+)
+) {
+
+    Column(
+        modifier =
+            Modifier.padding(14.dp)
     ) {
 
-        Column(
-            modifier = Modifier.padding(14.dp)
+        Row(
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Icon(
-                    Icons.Default.Build,
-                    contentDescription = null,
-                    tint = YgBlue,
-                    modifier = Modifier.size(19.dp)
-                )
-
-                Spacer(
-                    modifier = Modifier.width(7.dp)
-                )
-
-                Text(
-                    text = "Registro",
-                    color = YgText,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-
-            Spacer(
-                modifier = Modifier.height(9.dp)
+            Icon(
+                Icons.Default.Build,
+                contentDescription =
+                    null,
+                tint = YgBlue,
+                modifier =
+                    Modifier.size(19.dp)
             )
 
-            if (lastRefresh != null) {
+            Spacer(
+                modifier =
+                    Modifier.width(7.dp)
+            )
+
+            Text(
+                text = "Registro",
+                color = YgText,
+                fontWeight =
+                    FontWeight.ExtraBold
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(9.dp)
+        )
+
+        if (lastRefresh != null) {
+
+            Text(
+                text =
+                    "Última actualización: $lastRefresh",
+                color = YgMuted,
+                style =
+                    MaterialTheme
+                        .typography
+                        .labelSmall
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(7.dp)
+            )
+        }
+
+        if (logs.isEmpty()) {
+
+            Text(
+                text =
+                    "Esperando eventos...",
+                color = YgMuted,
+                style =
+                    MaterialTheme
+                        .typography
+                        .bodySmall
+            )
+
+        } else {
+
+            logs.take(8).forEach { log ->
 
                 Text(
-                    text = "Última actualización: $lastRefresh",
-                    color = YgMuted,
-                    style = MaterialTheme.typography.labelSmall
-                )
-
-                Spacer(
-                    modifier = Modifier.height(7.dp)
-                )
-            }
-
-            if (logs.isEmpty()) {
-
-                Text(
-                    text = "Esperando eventos...",
-                    color = YgMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-
-            } else {
-
-                logs.take(8).forEach { log ->
-
-                    Text(
-                        text = log,
-                        color = YgText,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(
+                    text = log,
+                    color = YgText,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall,
+                    modifier =
+                        Modifier.padding(
                             vertical = 2.dp
                         )
-                    )
-                }
+                )
             }
         }
     }
+}
+
 }
 
 @Composable
 private fun SettingsScreen() {
-    Column(
-        modifier = Modifier.fillMaxSize()
+Column(
+modifier = Modifier.fillMaxSize()
+) {
+
+    Header(
+        title = "Configuración"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape =
+            RoundedCornerShape(18.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    Color.White
+            )
     ) {
 
-        Header(
-            title = "Configuración"
-        )
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.White
-            )
+        Column(
+            modifier =
+                Modifier.padding(20.dp)
         ) {
 
-            Column(
-                modifier = Modifier.padding(20.dp)
-            ) {
+            Text(
+                text =
+                    "YG Sync Controller",
+                color = YgText,
+                fontWeight =
+                    FontWeight.ExtraBold
+            )
 
-                Text(
-                    text = "YG Sync Controller",
-                    color = YgText,
-                    fontWeight = FontWeight.ExtraBold
-                )
+            Spacer(
+                modifier =
+                    Modifier.height(6.dp)
+            )
 
-                Spacer(
-                    modifier = Modifier.height(6.dp)
-                )
-
-                Text(
-                    text = "Control sincronizado de reproducción para SmartTube.",
-                    color = YgMuted
-                )
-            }
+            Text(
+                text =
+                    "Control sincronizado de reproducción para SmartTube.",
+                color = YgMuted
+            )
         }
     }
+}
+
 }
 
 @Composable
 private fun BottomNavigationBar(
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit
+selectedTab: Int,
+onTabSelected: (Int) -> Unit
 ) {
-    Surface(
+Surface(
+modifier = Modifier
+.fillMaxWidth()
+.navigationBarsPadding(),
+color = Color.White,
+shadowElevation = 8.dp
+) {
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding(),
-        color = Color.White,
-        shadowElevation = 8.dp
+            .height(70.dp),
+        verticalAlignment =
+            Alignment.CenterVertically
     ) {
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(70.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        BottomItem(
+            modifier =
+                Modifier.weight(1f),
+            icon =
+                Icons.Default.Home,
+            label = "Inicio",
+            selected =
+                selectedTab == 0,
+            onClick = {
+                onTabSelected(0)
+            }
+        )
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Home,
-                label = "Inicio",
-                selected = selectedTab == 0,
-                onClick = {
-                    onTabSelected(0)
-                }
-            )
+        BottomItem(
+            modifier =
+                Modifier.weight(1f),
+            icon =
+                Icons.Default.Search,
+            label = "Buscar",
+            selected =
+                selectedTab == 1,
+            onClick = {
+                onTabSelected(1)
+            }
+        )
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Search,
-                label = "Buscar",
-                selected = selectedTab == 1,
-                onClick = {
-                    onTabSelected(1)
-                }
-            )
+        BottomItem(
+            modifier =
+                Modifier.weight(1f),
+            icon =
+                Icons.Default.LibraryMusic,
+            label = "Biblioteca",
+            selected =
+                selectedTab == 2,
+            onClick = {
+                onTabSelected(2)
+            }
+        )
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.LibraryMusic,
-                label = "Biblioteca",
-                selected = selectedTab == 2,
-                onClick = {
-                    onTabSelected(2)
-                }
-            )
+        BottomItem(
+            modifier =
+                Modifier.weight(1f),
+            icon =
+                Icons.Default.Tv,
+            label = "Pantallas",
+            selected =
+                selectedTab == 3,
+            onClick = {
+                onTabSelected(3)
+            }
+        )
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Tv,
-                label = "Pantallas",
-                selected = selectedTab == 3,
-                onClick = {
-                    onTabSelected(3)
-                }
-            )
+        BottomItem(
+            modifier =
+                Modifier.weight(1f),
+            icon =
+                Icons.Default.Build,
+            label = "Técnico",
+            selected =
+                selectedTab == 4,
+            onClick = {
+                onTabSelected(4)
+            }
+        )
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Build,
-                label = "Técnico",
-                selected = selectedTab == 4,
-                onClick = {
-                    onTabSelected(4)
-                }
-            )
-
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Settings,
-                label = "Ajustes",
-                selected = selectedTab == 5,
-                onClick = {
-                    onTabSelected(5)
-                }
-            )
-        }
+        BottomItem(
+            modifier =
+                Modifier.weight(1f),
+            icon =
+                Icons.Default.Settings,
+            label = "Ajustes",
+            selected =
+                selectedTab == 5,
+            onClick = {
+                onTabSelected(5)
+            }
+        )
     }
+}
+
 }
 
 @Composable
 private fun BottomItem(
-    modifier: Modifier,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
+modifier: Modifier,
+icon:
+androidx.compose.ui.graphics.vector.ImageVector,
+label: String,
+selected: Boolean,
+onClick: () -> Unit
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable {
-                onClick()
-            }
-            .padding(
-                horizontal = 2.dp,
-                vertical = 5.dp
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+Column(
+modifier = modifier
+.fillMaxWidth()
+.clip(
+RoundedCornerShape(14.dp)
+)
+.clickable {
+onClick()
+}
+.padding(
+horizontal = 2.dp,
+vertical = 5.dp
+),
+horizontalAlignment =
+Alignment.CenterHorizontally
+) {
 
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (selected) {
+    Icon(
+        imageVector = icon,
+        contentDescription = label,
+        tint =
+            if (selected) {
                 YgBlue
             } else {
                 YgMuted
             },
-            modifier = Modifier.size(22.dp)
-        )
+        modifier =
+            Modifier.size(22.dp)
+    )
 
-        Text(
-            text = label,
-            color = if (selected) {
+    Text(
+        text = label,
+        color =
+            if (selected) {
                 YgBlue
             } else {
                 YgMuted
             },
-            fontWeight = if (selected) {
+        fontWeight =
+            if (selected) {
                 FontWeight.Bold
             } else {
                 FontWeight.Normal
             },
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+        style =
+            MaterialTheme
+                .typography
+                .labelSmall,
+        maxLines = 1,
+        overflow =
+            TextOverflow.Ellipsis
+    )
+}
+
 }
 
 private fun sendVideoToReceivers(
-    context: Context,
-    video: YgYouTubeResult
+context: Context,
+video: YgYouTubeResult
 ) {
-    val service = ControllerSyncService.getInstance()
+val service =
+ControllerSyncService.getInstance()
 
-    if (service == null) {
+if (service == null) {
+
+    Toast.makeText(
+        context,
+        "El servicio de sincronización todavía está iniciando.",
+        Toast.LENGTH_SHORT
+    ).show()
+
+    return
+}
+
+kotlinx.coroutines.MainScope().launch {
+
+    try {
+
+        val success =
+            service.loadVideoAndWaitReady(
+                video.videoId
+            )
+
         Toast.makeText(
             context,
-            "El servicio de sincronización todavía está iniciando.",
+            if (success) {
+                "Video enviado a las pantallas"
+            } else {
+                "El video fue enviado, pero alguna pantalla no confirmó la reproducción"
+            },
             Toast.LENGTH_SHORT
         ).show()
-        return
+
+    } catch (e: Exception) {
+
+        Toast.makeText(
+            context,
+            "Error al enviar: ${e.message}",
+            Toast.LENGTH_LONG
+        ).show()
     }
+}
 
-    kotlinx.coroutines.MainScope().launch {
-        try {
-
-            val success =
-                service.loadVideoAndWaitReady(
-                    video.videoId
-                )
-
-            Toast.makeText(
-                context,
-                if (success) {
-                    "Video enviado a las pantallas"
-                } else {
-                    "El video fue enviado, pero alguna pantalla no confirmó la reproducción"
-                },
-                Toast.LENGTH_SHORT
-            ).show()
-
-        } catch (e: Exception) {
-
-            Toast.makeText(
-                context,
-                "Error al enviar: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
 }
