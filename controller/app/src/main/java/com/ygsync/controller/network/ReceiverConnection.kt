@@ -22,29 +22,11 @@ class ReceiverConnection(
     companion object {
         private const val TAG = "YG_SYNC_CONNECTION"
 
-        /*
-         * La conexión TCP/WebSocket solamente necesita unos pocos
-         * segundos para establecerse.
-         */
         private const val CONNECT_TIMEOUT_MS = 5000L
-
-        /*
-         * ACK de comandos normales.
-         */
         private const val RESPONSE_TIMEOUT_MS = 3000L
-
-        /*
-         * Antes eran 30 segundos.
-         *
-         * 8 segundos evita que una pantalla lenta congele
-         * todo el envío durante demasiado tiempo.
-         */
-        private const val READY_TIMEOUT_MS = 8000L
+        private const val READY_TIMEOUT_MS = 10000L
     }
 
-    /*
-     * Constructor compatible con ControllerSyncService.
-     */
     constructor(
         receiver: Receiver,
         onConnected: () -> Unit = {},
@@ -67,7 +49,8 @@ class ReceiverConnection(
 
     private data class PendingResponse(
         val latch: CountDownLatch = CountDownLatch(1),
-        @Volatile var response: JSONObject? = null
+        @Volatile var response: JSONObject? = null,
+        val validator: (JSONObject) -> Boolean
     )
 
     private val responseLock = Any()
@@ -83,10 +66,6 @@ class ReceiverConnection(
 
     fun connect(): Boolean {
 
-        /*
-         * Cerramos cualquier conexión anterior sin dejar
-         * respuestas pendientes.
-         */
         disconnect()
 
         return try {
@@ -151,24 +130,98 @@ class ReceiverConnection(
                                     ""
                                 )
 
-                            /*
-                             * Las respuestas READY, ACK, PONG,
-                             * STATUS, ERROR, etc. llegan aquí.
-                             */
-                            if (commandId.isNotEmpty()) {
-
-                                val pending =
-                                    synchronized(responseLock) {
-                                        responses[commandId]
-                                    }
-
-                                pending?.let {
-
-                                    it.response = json
-
-                                    it.latch.countDown()
-                                }
+                            if (commandId.isEmpty()) {
+                                return
                             }
+
+                            val pending =
+                                synchronized(responseLock) {
+                                    responses[commandId]
+                                }
+
+                            if (pending == null) {
+
+                                Log.d(
+                                    TAG,
+                                    "Respuesta sin espera activa: $commandId"
+                                )
+
+                                return
+                            }
+
+                            /*
+                             * -------------------------------------------------
+                             * IMPORTANTE
+                             * -------------------------------------------------
+                             *
+                             * Un comando OPEN produce dos respuestas:
+                             *
+                             * 1. ACK inmediato
+                             * 2. READY cuando SmartTube realmente cargó
+                             *    el video.
+                             *
+                             * Antes el ACK liberaba el latch aunque el
+                             * validator esperaba READY.
+                             *
+                             * Ahora solamente liberamos la espera cuando
+                             * la respuesta cumple el validator.
+                             */
+
+                            val accepted =
+                                pending.validator(json)
+
+                            if (accepted) {
+
+                                Log.d(
+                                    TAG,
+                                    "Respuesta aceptada: $json"
+                                )
+
+                                pending.response = json
+
+                                pending.latch.countDown()
+
+                                return
+                            }
+
+                            /*
+                             * Los errores sí terminan inmediatamente
+                             * la espera, aunque no pasen el validator.
+                             */
+                            val type =
+                                json.optString(
+                                    "type",
+                                    ""
+                                )
+
+                            if (
+                                type == "error"
+                            ) {
+
+                                Log.e(
+                                    TAG,
+                                    "Receiver devolvió ERROR: $json"
+                                )
+
+                                pending.response = json
+
+                                pending.latch.countDown()
+
+                                return
+                            }
+
+                            /*
+                             * ACK u otra respuesta intermedia:
+                             *
+                             * NO liberamos el latch.
+                             *
+                             * La entrada permanece registrada para
+                             * recibir posteriormente READY.
+                             */
+                            Log.d(
+                                TAG,
+                                "Respuesta intermedia ignorada: type=$type commandId=$commandId"
+                            )
 
                         } catch (e: Exception) {
 
@@ -203,10 +256,6 @@ class ReceiverConnection(
                             "Desconectado de $address:$port"
                         )
 
-                        /*
-                         * El ControllerSyncService se encarga
-                         * posteriormente de la reconexión.
-                         */
                         onDisconnected()
                     }
 
@@ -232,10 +281,6 @@ class ReceiverConnection(
                     }
                 }
 
-            /*
-             * No usamos connectBlocking().
-             * El WebSocket trabaja en su propio hilo.
-             */
             client.connect()
 
             val completed =
@@ -263,10 +308,6 @@ class ReceiverConnection(
                 return false
             }
 
-            /*
-             * Solamente guardamos el socket después
-             * de confirmar que la conexión fue exitosa.
-             */
             webSocket = client
 
             true
@@ -447,18 +488,8 @@ class ReceiverConnection(
 
     /*
      * ---------------------------------------------------------
-     * LOAD VIDEO
+     * LOAD VIDEO + READY REAL
      * ---------------------------------------------------------
-     *
-     * La diferencia importante está aquí:
-     *
-     * ANTES:
-     * READY podía tardar hasta 30 segundos.
-     *
-     * AHORA:
-     * máximo 8 segundos.
-     *
-     * Además, el envío del OPEN ocurre inmediatamente.
      */
 
     fun loadVideoAndWaitReady(
@@ -523,16 +554,35 @@ class ReceiverConnection(
                         )
 
                     /*
-                     * Para LOAD solamente aceptamos READY.
-                     *
-                     * Esto mantiene la sincronización:
-                     * no declaramos el video listo solamente
-                     * porque el comando fue enviado.
+                     * Para OPEN solamente READY confirma
+                     * que SmartTube cambió al video.
                      */
-                    type == "ready" &&
-                            isSuccessfulResponse(
-                                response
+                    if (type != "ready") {
+                        return@sendAndWaitForJson false
+                    }
+
+                    if (
+                        !isSuccessfulResponse(
+                            response
+                        )
+                    ) {
+                        return@sendAndWaitForJson false
+                    }
+
+                    val responsePayload =
+                        response.optJSONObject(
+                            "payload"
+                        )
+
+                    val responseVideoId =
+                        responsePayload
+                            ?.optString(
+                                "videoId",
+                                ""
                             )
+                            ?.trim()
+
+                    responseVideoId == cleanVideoId
                 }
 
             if (response == null) {
@@ -770,7 +820,9 @@ class ReceiverConnection(
         }
 
         val pending =
-            PendingResponse()
+            PendingResponse(
+                validator = validator
+            )
 
         synchronized(responseLock) {
 
@@ -780,10 +832,6 @@ class ReceiverConnection(
 
         return try {
 
-            /*
-             * El socket debe estar abierto antes
-             * de intentar enviar.
-             */
             val socket =
                 webSocket
 
@@ -822,6 +870,25 @@ class ReceiverConnection(
             val response =
                 pending.response
                     ?: return null
+
+            /*
+             * Un ERROR puede haber despertado la espera.
+             * Nunca lo consideramos éxito.
+             */
+            if (
+                response.optString(
+                    "type",
+                    ""
+                ) == "error"
+            ) {
+
+                Log.e(
+                    TAG,
+                    "Respuesta ERROR: $response"
+                )
+
+                return null
+            }
 
             if (!validator(response)) {
 
