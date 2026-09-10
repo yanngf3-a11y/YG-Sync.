@@ -6,31 +6,24 @@ plugins {
 
 android {
     namespace = "com.ygsync.controller"
-
     compileSdk = 35
 
     defaultConfig {
         applicationId = "com.ygsync.controller"
-
         minSdk = 26
         targetSdk = 35
-
-        versionCode = 6
+        versionCode = 1
         versionName = "0.6.0"
     }
 
     signingConfigs {
         create("ygsync") {
-
             val keystorePath =
                 project.findProperty("ygsyncKeystore") as String?
-
             val storePassword =
                 project.findProperty("ygsyncStorePassword") as String?
-
             val keyAlias =
                 project.findProperty("ygsyncKeyAlias") as String?
-
             val keyPassword =
                 project.findProperty("ygsyncKeyPassword") as String?
 
@@ -50,20 +43,14 @@ android {
 
     buildTypes {
         debug {
-            signingConfig =
-                signingConfigs.getByName("ygsync")
+            signingConfig = signingConfigs.getByName("ygsync")
         }
 
         release {
             isMinifyEnabled = false
-
-            signingConfig =
-                signingConfigs.getByName("ygsync")
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("ygsync")
         }
-    }
-
-    buildFeatures {
-        compose = true
     }
 
     compileOptions {
@@ -74,65 +61,35 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    buildFeatures {
+        compose = true
+    }
 }
 
 dependencies {
 
-    implementation(
-        "androidx.core:core-ktx:1.15.0"
-    )
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-compose:1.10.1")
 
-    implementation(
-        "androidx.activity:activity-compose:1.10.1"
-    )
+    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
 
-    implementation(
-        "androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7"
-    )
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.compose.runtime:runtime-livedata:1.7.6")
 
-    implementation(
-        "androidx.compose.runtime:runtime-livedata:1.7.6"
-    )
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    implementation(
-        platform(
-            "androidx.compose:compose-bom:2024.12.01"
-        )
-    )
+    implementation("org.java-websocket:Java-WebSocket:1.5.3")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    implementation(
-        "androidx.compose.ui:ui"
-    )
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
 
-    implementation(
-        "androidx.compose.ui:ui-tooling-preview"
-    )
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
-    implementation(
-        "androidx.compose.material3:material3"
-    )
-
-    implementation(
-        "androidx.compose.material:material-icons-extended"
-    )
-
-    implementation(
-        "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
-    )
-
-    implementation(
-        "org.java-websocket:Java-WebSocket:1.5.3"
-    )
-
-    implementation(
-        "com.squareup.okhttp3:okhttp:4.12.0"
-    )
-
-    implementation(
-        "com.github.TeamNewPipe:NewPipeExtractor:v0.26.5"
-    )
-
-    debugImplementation(
-        "androidx.compose.ui:ui-tooling"
-    )
+    debugImplementation("androidx.compose.ui:ui-tooling")
 }
