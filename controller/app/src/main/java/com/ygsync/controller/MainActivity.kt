@@ -12,14 +12,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -28,8 +32,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -37,10 +39,10 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -64,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,7 +108,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startControllerService() {
-
         val intent =
             Intent(
                 this,
@@ -116,19 +118,14 @@ class MainActivity : ComponentActivity() {
             }
 
         try {
-
             if (
                 Build.VERSION.SDK_INT >=
                 Build.VERSION_CODES.O
             ) {
-
                 startForegroundService(intent)
-
             } else {
-
                 startService(intent)
             }
-
         } catch (_: Exception) {
         }
     }
@@ -137,7 +134,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun YGSyncApp() {
 
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context =
+        androidx.compose.ui.platform.LocalContext.current
 
     var service by remember {
         mutableStateOf(
@@ -146,17 +144,12 @@ fun YGSyncApp() {
     }
 
     LaunchedEffect(Unit) {
-
-        repeat(30) {
-
+        repeat(40) {
             val current =
                 ControllerSyncService.getInstance()
 
             if (current != null) {
-
-                service =
-                    current
-
+                service = current
                 return@LaunchedEffect
             }
 
@@ -166,13 +159,10 @@ fun YGSyncApp() {
 
     val receiverState =
         if (service != null) {
-
             service!!
                 .receiverList
                 .collectAsState()
-
         } else {
-
             remember {
                 mutableStateOf(
                     emptyList<Receiver>()
@@ -182,13 +172,10 @@ fun YGSyncApp() {
 
     val connectionState =
         if (service != null) {
-
             service!!
                 .connectionStates
                 .collectAsState()
-
         } else {
-
             remember {
                 mutableStateOf(
                     emptyMap<String, Boolean>()
@@ -198,13 +185,10 @@ fun YGSyncApp() {
 
     val latencyState =
         if (service != null) {
-
             service!!
                 .latencies
                 .collectAsState()
-
         } else {
-
             remember {
                 mutableStateOf(
                     emptyMap<String, Long>()
@@ -214,13 +198,10 @@ fun YGSyncApp() {
 
     val serviceDiagnostic =
         if (service != null) {
-
             service!!
                 .diagnostic
                 .collectAsState()
-
         } else {
-
             remember {
                 mutableStateOf(
                     "Iniciando servicio..."
@@ -271,6 +252,8 @@ fun YGSyncApp() {
 
     fun startDiscovery() {
 
+        if (discovering) return
+
         discovering = true
         discoveryError = false
 
@@ -278,7 +261,6 @@ fun YGSyncApp() {
             ControllerSyncService.getInstance()
 
         if (syncService == null) {
-
             discovering = false
             discoveryError = true
             return
@@ -295,8 +277,7 @@ fun YGSyncApp() {
         ).launch {
 
             var multicastLock:
-                WifiManager.MulticastLock? =
-                null
+                WifiManager.MulticastLock? = null
 
             try {
 
@@ -326,28 +307,27 @@ fun YGSyncApp() {
                                         receiver
                                     )
 
-                                discovering = false
-                                discoveryError = false
+                                discoveryError =
+                                    false
                             }
                         }
                 }
 
             } catch (_: Exception) {
 
-                discovering = false
                 discoveryError = true
 
             } finally {
 
-                try {
+                discovering = false
 
+                try {
                     if (
                         multicastLock
                             ?.isHeld == true
                     ) {
                         multicastLock.release()
                     }
-
                 } catch (_: Exception) {
                 }
             }
@@ -371,19 +351,19 @@ fun YGSyncApp() {
         val receiver =
             Receiver(
                 id = "$ip:8765",
-                name = "Fire TV",
+                name = "Pantalla manual",
                 address = ip,
                 port = 8765
             )
 
-        syncService.registerReceiver(receiver)
+        syncService.registerReceiver(
+            receiver
+        )
 
         CoroutineScope(
             Dispatchers.Main.immediate
         ).launch {
-
             delay(1200)
-
             manualConnecting = false
         }
     }
@@ -403,7 +383,6 @@ fun YGSyncApp() {
         syncService.sendCommandAsync(
             command
         ) { _, _ ->
-
             commandRunning = false
         }
     }
@@ -431,45 +410,55 @@ fun YGSyncApp() {
         }
     }
 
+    fun extractVideoId(
+        input: String
+    ): String {
+
+        val clean =
+            input.trim()
+
+        return when {
+
+            clean.contains("youtu.be/") ->
+                clean
+                    .substringAfter("youtu.be/")
+                    .substringBefore("?")
+                    .substringBefore("&")
+                    .trim()
+
+            clean.contains("youtube.com/watch?v=") ->
+                clean
+                    .substringAfter("watch?v=")
+                    .substringBefore("&")
+                    .trim()
+
+            clean.contains("youtube.com/shorts/") ->
+                clean
+                    .substringAfter("youtube.com/shorts/")
+                    .substringBefore("?")
+                    .substringBefore("&")
+                    .trim()
+
+            else ->
+                clean
+        }
+    }
+
     fun loadVideo() {
 
-        var cleanVideoId =
-            videoId.trim()
+        val cleanVideoId =
+            extractVideoId(videoId)
 
-        if (cleanVideoId.isBlank()) return
-
-        /*
-         * Permite pegar tanto el ID como una URL
-         * normal de YouTube.
-         */
-        cleanVideoId =
-            when {
-
-                cleanVideoId.contains(
-                    "youtu.be/"
-                ) ->
-                    cleanVideoId
-                        .substringAfter("youtu.be/")
-                        .substringBefore("?")
-                        .substringBefore("&")
-
-                cleanVideoId.contains(
-                    "watch?v="
-                ) ->
-                    cleanVideoId
-                        .substringAfter("watch?v=")
-                        .substringBefore("&")
-
-                else ->
-                    cleanVideoId
-            }
-
-        currentVideo = cleanVideoId
-        videoId = cleanVideoId
+        if (cleanVideoId.isBlank()) {
+            return
+        }
 
         val syncService =
             ControllerSyncService.getInstance()
                 ?: return
+
+        videoId =
+            cleanVideoId
 
         commandRunning = true
 
@@ -486,12 +475,8 @@ fun YGSyncApp() {
             commandRunning = false
 
             if (ready) {
-
-                /*
-                 * Todas las pantallas confirmaron
-                 * READY.
-                 */
-                currentVideo = cleanVideoId
+                currentVideo =
+                    cleanVideoId
             }
         }
     }
@@ -524,13 +509,14 @@ fun YGSyncApp() {
 
             muted = false
 
-            setGlobalVolume(
+            val restored =
                 if (globalVolume <= 0f) {
                     1f
                 } else {
                     globalVolume
                 }
-            )
+
+            setGlobalVolume(restored)
 
         } else {
 
@@ -542,16 +528,13 @@ fun YGSyncApp() {
         }
     }
 
-    fun syncAll() {
-
-        sendCommand("SYNC")
-    }
-
     LaunchedEffect(service) {
 
-        if (service == null) return@LaunchedEffect
+        if (service == null) {
+            return@LaunchedEffect
+        }
 
-        delay(300)
+        delay(500)
 
         if (
             service!!
@@ -565,234 +548,214 @@ fun YGSyncApp() {
 
     Surface(
         modifier =
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.navigationBars
+                ),
         color =
             Background
     ) {
 
-        Column(
+        LazyColumn(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(
-                        horizontal = 20.dp,
-                        vertical = 18.dp
-                    )
+                Modifier.fillMaxSize(),
+            contentPadding =
+                PaddingValues(
+                    start = 18.dp,
+                    end = 18.dp,
+                    top = 18.dp,
+                    bottom = 32.dp
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(14.dp)
         ) {
 
-            Header()
+            item {
+                Header()
+            }
 
-            Spacer(
-                modifier =
-                    Modifier.height(18.dp)
-            )
-
-            ManualConnectionCard(
-                ip = manualIp,
-                onIpChange = {
-                    manualIp = it
-                },
-                onConnect = {
-                    connectManual()
-                },
-                connecting =
-                    manualConnecting
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(14.dp)
-            )
-
-            ConnectionSummary(
-                receiverCount =
-                    receiverState.value.size,
-                connectedCount =
-                    connectionState.value
-                        .values
-                        .count { it },
-                discovering =
-                    discovering
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(14.dp)
-            )
-
-            GlobalControlCard(
-                commandRunning =
-                    commandRunning,
-                volume =
-                    globalVolume,
-                muted =
-                    muted,
-                onPlay = {
-                    sendCommand("PLAY")
-                },
-                onPause = {
-                    sendCommand("PAUSE")
-                },
-                onStop = {
-                    sendCommand("STOP")
-                },
-                onPrevious = {
-                    sendCommand("PREVIOUS")
-                },
-                onNext = {
-                    sendCommand("NEXT")
-                },
-                onSync = {
-                    syncAll()
-                },
-                onVolumeChange = {
-                    setGlobalVolume(it)
-                },
-                onMute = {
-                    toggleMute()
-                }
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(14.dp)
-            )
-
-            NowPlayingCard(
-                videoId =
-                    videoId,
-                currentVideo =
-                    currentVideo,
-                onVideoIdChange = {
-                    videoId = it
-                },
-                onLoad = {
-                    loadVideo()
-                },
-                commandRunning =
-                    commandRunning
-            )
-
-            Spacer(
-                modifier =
-                    Modifier.height(18.dp)
-            )
-
-            SectionHeader(
-                title =
-                    "Pantallas",
-                action =
-                    if (discovering) {
-                        "Buscando..."
-                    } else {
-                        "Actualizar"
+            item {
+                ManualConnectionCard(
+                    ip = manualIp,
+                    onIpChange = {
+                        manualIp = it
                     },
-                onClick = {
-                    startDiscovery()
-                }
-            )
+                    onConnect = {
+                        connectManual()
+                    },
+                    connecting =
+                        manualConnecting
+                )
+            }
 
-            Spacer(
-                modifier =
-                    Modifier.height(10.dp)
-            )
+            item {
+                ConnectionSummary(
+                    receiverCount =
+                        receiverState.value.size,
+                    connectedCount =
+                        connectionState
+                            .value
+                            .values
+                            .count { it },
+                    discovering =
+                        discovering
+                )
+            }
 
-            DiagnosticCard(
-                message =
-                    serviceDiagnostic.value,
-                isError =
-                    discoveryError
-            )
+            item {
+                GlobalControlCard(
+                    commandRunning =
+                        commandRunning,
+                    volume =
+                        globalVolume,
+                    muted =
+                        muted,
+                    onPlay = {
+                        sendCommand("PLAY")
+                    },
+                    onPause = {
+                        sendCommand("PAUSE")
+                    },
+                    onStop = {
+                        sendCommand("STOP")
+                    },
+                    onPrevious = {
+                        sendCommand("PREVIOUS")
+                    },
+                    onNext = {
+                        sendCommand("NEXT")
+                    },
+                    onSync = {
+                        sendCommand("SYNC")
+                    },
+                    onVolumeChange = {
+                        setGlobalVolume(it)
+                    },
+                    onMute = {
+                        toggleMute()
+                    }
+                )
+            }
 
-            Spacer(
-                modifier =
-                    Modifier.height(12.dp)
-            )
+            item {
+                NowPlayingCard(
+                    videoId =
+                        videoId,
+                    currentVideo =
+                        currentVideo,
+                    onVideoIdChange = {
+                        videoId = it
+                    },
+                    onLoad = {
+                        loadVideo()
+                    },
+                    commandRunning =
+                        commandRunning
+                )
+            }
+
+            item {
+                SectionHeader(
+                    title =
+                        "Pantallas",
+                    discovering =
+                        discovering,
+                    onClick =
+                        {
+                            startDiscovery()
+                        }
+                )
+            }
+
+            item {
+                DiagnosticCard(
+                    message =
+                        serviceDiagnostic.value,
+                    isError =
+                        discoveryError
+                )
+            }
 
             if (
                 receiverState.value.isEmpty()
             ) {
 
-                EmptyState(
-                    discovering =
-                        discovering,
-                    onRefresh = {
-                        startDiscovery()
-                    }
-                )
+                item {
+                    EmptyState(
+                        discovering =
+                            discovering,
+                        onRefresh =
+                            {
+                                startDiscovery()
+                            }
+                    )
+                }
 
             } else {
 
-                LazyColumn(
-                    modifier =
-                        Modifier.fillMaxWidth(),
-                    verticalArrangement =
-                        Arrangement.spacedBy(10.dp)
-                ) {
+                items(
+                    items =
+                        receiverState.value,
+                    key = {
+                        it.id
+                    }
+                ) { receiver ->
 
-                    items(
-                        items =
-                            receiverState.value,
-                        key = {
-                            it.id
-                        }
-                    ) { receiver ->
-
-                        ScreenCard(
-                            receiver =
+                    ScreenCard(
+                        receiver =
+                            receiver,
+                        connected =
+                            connectionState
+                                .value[
+                                    receiver.id
+                                ] == true,
+                        latency =
+                            latencyState
+                                .value[
+                                    receiver.id
+                                ],
+                        onPlay = {
+                            sendIndividualCommand(
                                 receiver,
-                            connected =
-                                connectionState
-                                    .value[
-                                        receiver.id
-                                    ] == true,
-                            latency =
-                                latencyState
-                                    .value[
-                                        receiver.id
-                                    ],
-                            onPlay = {
-                                sendIndividualCommand(
-                                    receiver,
-                                    "PLAY"
-                                )
-                            },
-                            onPause = {
-                                sendIndividualCommand(
-                                    receiver,
-                                    "PAUSE"
-                                )
-                            },
-                            onStop = {
-                                sendIndividualCommand(
-                                    receiver,
-                                    "STOP"
-                                )
-                            },
-                            onPrevious = {
-                                sendIndividualCommand(
-                                    receiver,
-                                    "PREVIOUS"
-                                )
-                            },
-                            onNext = {
-                                sendIndividualCommand(
-                                    receiver,
-                                    "NEXT"
-                                )
-                            },
-                            onMute = {
-                                sendIndividualCommand(
-                                    receiver,
-                                    "SET_VOLUME|0.0"
-                                )
-                            }
-                        )
-                    }
+                                "PLAY"
+                            )
+                        },
+                        onPause = {
+                            sendIndividualCommand(
+                                receiver,
+                                "PAUSE"
+                            )
+                        },
+                        onStop = {
+                            sendIndividualCommand(
+                                receiver,
+                                "STOP"
+                            )
+                        },
+                        onPrevious = {
+                            sendIndividualCommand(
+                                receiver,
+                                "PREVIOUS"
+                            )
+                        },
+                        onNext = {
+                            sendIndividualCommand(
+                                receiver,
+                                "NEXT"
+                            )
+                        },
+                        onMute = {
+                            sendIndividualCommand(
+                                receiver,
+                                "SET_VOLUME|0.0"
+                            )
+                        }
+                    )
+                }
 
-                    item {
-                        AddScreenButton()
-                    }
+                item {
+                    AddScreenButton()
                 }
             }
         }
@@ -823,9 +786,7 @@ fun Header() {
                                     )
                             ),
                         shape =
-                            RoundedCornerShape(
-                                17.dp
-                            )
+                            RoundedCornerShape(17.dp)
                     ),
             contentAlignment =
                 Alignment.Center
@@ -878,12 +839,8 @@ fun Header() {
             modifier =
                 Modifier
                     .background(
-                        color =
-                            SoftGreen,
-                        shape =
-                            RoundedCornerShape(
-                                12.dp
-                            )
+                        SoftGreen,
+                        RoundedCornerShape(12.dp)
                     )
                     .padding(
                         horizontal = 10.dp,
@@ -939,10 +896,8 @@ fun ManualConnectionCard(
                         Modifier
                             .size(38.dp)
                             .background(
-                                color =
-                                    SoftBlue,
-                                shape =
-                                    CircleShape
+                                SoftBlue,
+                                CircleShape
                             ),
                     contentAlignment =
                         Alignment.Center
@@ -1061,7 +1016,7 @@ fun ManualConnectionCard(
 
             Text(
                 text =
-                    "Puerto YG Sync: 8765",
+                    "Puerto YG Sync · 8765",
                 fontSize =
                     11.sp,
                 color =
@@ -1101,10 +1056,8 @@ fun ConnectionSummary(
                     Modifier
                         .size(46.dp)
                         .background(
-                            color =
-                                SoftBlue,
-                            shape =
-                                CircleShape
+                            SoftBlue,
+                            CircleShape
                         ),
                 contentAlignment =
                     Alignment.Center
@@ -1161,18 +1114,12 @@ fun ConnectionSummary(
                 modifier =
                     Modifier
                         .background(
-                            color =
-                                if (
-                                    connectedCount > 0
-                                ) {
-                                    SoftGreen
-                                } else {
-                                    SoftRed
-                                },
-                            shape =
-                                RoundedCornerShape(
-                                    12.dp
-                                )
+                            if (connectedCount > 0) {
+                                SoftGreen
+                            } else {
+                                SoftRed
+                            },
+                            RoundedCornerShape(12.dp)
                         )
                         .padding(
                             horizontal = 10.dp,
@@ -1182,9 +1129,7 @@ fun ConnectionSummary(
 
                 Text(
                     text =
-                        if (
-                            connectedCount > 0
-                        ) {
+                        if (connectedCount > 0) {
                             "ONLINE"
                         } else {
                             "OFFLINE"
@@ -1194,9 +1139,7 @@ fun ConnectionSummary(
                     fontWeight =
                         FontWeight.Bold,
                     color =
-                        if (
-                            connectedCount > 0
-                        ) {
+                        if (connectedCount > 0) {
                             Success
                         } else {
                             ErrorRed
@@ -1292,7 +1235,7 @@ fun GlobalControlCard(
                 modifier =
                     Modifier.fillMaxWidth(),
                 horizontalArrangement =
-                    Arrangement.spacedBy(8.dp)
+                    Arrangement.spacedBy(6.dp)
             ) {
 
                 ControlButton(
@@ -1506,8 +1449,8 @@ fun ControlButton(
             enabled =
                 enabled,
             contentPadding =
-                androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 3.dp,
+                PaddingValues(
+                    horizontal = 2.dp,
                     vertical = 8.dp
                 ),
             colors =
@@ -1539,8 +1482,8 @@ fun ControlButton(
             enabled =
                 enabled,
             contentPadding =
-                androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 3.dp,
+                PaddingValues(
+                    horizontal = 2.dp,
                     vertical = 8.dp
                 ),
             colors =
@@ -1585,7 +1528,7 @@ fun NowPlayingCard(
         color =
             CardWhite,
         shadowElevation =
-            3.dp
+            4.dp
     ) {
 
         Column(
@@ -1601,7 +1544,7 @@ fun NowPlayingCard(
                 Box(
                     modifier =
                         Modifier
-                            .size(42.dp)
+                            .size(44.dp)
                             .background(
                                 brush =
                                     Brush.linearGradient(
@@ -1612,9 +1555,7 @@ fun NowPlayingCard(
                                             )
                                     ),
                                 shape =
-                                    RoundedCornerShape(
-                                        13.dp
-                                    )
+                                    RoundedCornerShape(14.dp)
                             ),
                     contentAlignment =
                         Alignment.Center
@@ -1628,7 +1569,7 @@ fun NowPlayingCard(
                         tint =
                             Color.White,
                         modifier =
-                            Modifier.size(22.dp)
+                            Modifier.size(23.dp)
                     )
                 }
 
@@ -1637,7 +1578,10 @@ fun NowPlayingCard(
                         Modifier.width(11.dp)
                 )
 
-                Column {
+                Column(
+                    modifier =
+                        Modifier.weight(1f)
+                ) {
 
                     Text(
                         text =
@@ -1652,7 +1596,7 @@ fun NowPlayingCard(
 
                     Text(
                         text =
-                            "Video actual",
+                            "Enviar contenido",
                         fontSize =
                             18.sp,
                         fontWeight =
@@ -1665,7 +1609,7 @@ fun NowPlayingCard(
 
             Spacer(
                 modifier =
-                    Modifier.height(13.dp)
+                    Modifier.height(14.dp)
             )
 
             if (currentVideo.isNotBlank()) {
@@ -1698,14 +1642,17 @@ fun NowPlayingCard(
 
                         Spacer(
                             modifier =
-                                Modifier.width(8.dp)
+                                Modifier.width(9.dp)
                         )
 
-                        Column {
+                        Column(
+                            modifier =
+                                Modifier.weight(1f)
+                        ) {
 
                             Text(
                                 text =
-                                    "VIDEO CARGADO",
+                                    "REPRODUCIENDO / PREPARADO",
                                 fontSize =
                                     9.sp,
                                 fontWeight =
@@ -1730,9 +1677,25 @@ fun NowPlayingCard(
 
                 Spacer(
                     modifier =
-                        Modifier.height(10.dp)
+                        Modifier.height(11.dp)
                 )
             }
+
+            Text(
+                text =
+                    "URL o ID del video",
+                fontSize =
+                    12.sp,
+                fontWeight =
+                    FontWeight.SemiBold,
+                color =
+                    TextDark
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(6.dp)
+            )
 
             OutlinedTextField(
                 value =
@@ -1746,74 +1709,92 @@ fun NowPlayingCard(
                 singleLine =
                     true,
                 label = {
-                    Text(
-                        "ID o URL de YouTube"
-                    )
+                    Text("YouTube")
                 },
                 placeholder = {
                     Text(
-                        "dQw4w9WgXcQ"
+                        "https://youtube.com/watch?v=..."
                     )
                 },
                 keyboardOptions =
                     KeyboardOptions(
                         keyboardType =
                             KeyboardType.Uri
-                    )
+                    ),
+                shape =
+                    RoundedCornerShape(15.dp)
             )
 
             Spacer(
                 modifier =
-                    Modifier.height(10.dp)
+                    Modifier.height(11.dp)
             )
 
+            /*
+             * ESTE BOTÓN SIEMPRE PERMANECE EN LA INTERFAZ.
+             * Solo cambia su texto/estado mientras espera READY.
+             */
             Button(
                 onClick =
                     onLoad,
                 modifier =
-                    Modifier.fillMaxWidth(),
+                    Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
                 enabled =
                     !commandRunning &&
                             videoId.isNotBlank(),
                 colors =
                     ButtonDefaults.buttonColors(
                         containerColor =
-                            Blue
+                            Blue,
+                        disabledContainerColor =
+                            Color(0xFFB8C7E6)
                     ),
                 shape =
-                    RoundedCornerShape(14.dp)
+                    RoundedCornerShape(15.dp)
             ) {
 
                 Icon(
                     imageVector =
                         Icons.Default.VideoLibrary,
                     contentDescription =
-                        null
+                        null,
+                    modifier =
+                        Modifier.size(21.dp)
                 )
 
                 Spacer(
                     modifier =
-                        Modifier.width(8.dp)
+                        Modifier.width(9.dp)
                 )
 
                 Text(
                     text =
                         if (commandRunning) {
-                            "Esperando READY..."
+                            "PREPARANDO TODAS LAS PANTALLAS..."
                         } else {
-                            "Cargar y preparar todas"
-                        }
+                            "ENVIAR A TODAS LAS PANTALLAS"
+                        },
+                    fontSize =
+                        13.sp,
+                    fontWeight =
+                        FontWeight.Bold
                 )
             }
 
             Spacer(
                 modifier =
-                    Modifier.height(7.dp)
+                    Modifier.height(8.dp)
             )
 
             Text(
                 text =
-                    "El controlador espera la confirmación READY de las pantallas antes de terminar la carga.",
+                    if (commandRunning) {
+                        "Esperando confirmación READY..."
+                    } else {
+                        "Puedes pegar una URL completa o solamente el ID de YouTube."
+                    },
                 fontSize =
                     11.sp,
                 color =
@@ -1826,7 +1807,7 @@ fun NowPlayingCard(
 @Composable
 fun SectionHeader(
     title: String,
-    action: String,
+    discovering: Boolean,
     onClick: () -> Unit
 ) {
 
@@ -1837,56 +1818,88 @@ fun SectionHeader(
             Alignment.CenterVertically
     ) {
 
-        Text(
-            text =
-                title,
-            fontSize =
-                21.sp,
-            fontWeight =
-                FontWeight.Bold,
-            color =
-                TextDark,
+        Column(
             modifier =
                 Modifier.weight(1f)
-        )
-
-        Row(
-            modifier =
-                Modifier
-                    .clickable {
-                        onClick()
-                    }
-                    .padding(5.dp),
-            verticalAlignment =
-                Alignment.CenterVertically
         ) {
 
             Text(
                 text =
-                    action,
+                    title,
                 fontSize =
-                    13.sp,
+                    21.sp,
                 fontWeight =
-                    FontWeight.SemiBold,
+                    FontWeight.Bold,
                 color =
-                    Blue
+                    TextDark
             )
 
-            Spacer(
-                modifier =
-                    Modifier.width(4.dp)
+            Text(
+                text =
+                    "Receptores disponibles en tu red",
+                fontSize =
+                    11.sp,
+                color =
+                    TextSecondary
             )
+        }
 
-            Icon(
-                imageVector =
-                    Icons.Default.Refresh,
-                contentDescription =
-                    "Actualizar",
-                tint =
-                    Blue,
+        Surface(
+            modifier =
+                Modifier.clickable {
+                    onClick()
+                },
+            shape =
+                RoundedCornerShape(13.dp),
+            color =
+                if (discovering) {
+                    Color(0xFFE5EAF3)
+                } else {
+                    SoftBlue
+                }
+        ) {
+
+            Row(
                 modifier =
-                    Modifier.size(18.dp)
-            )
+                    Modifier.padding(
+                        horizontal = 12.dp,
+                        vertical = 9.dp
+                    ),
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.Refresh,
+                    contentDescription =
+                        "Actualizar",
+                    tint =
+                        Blue,
+                    modifier =
+                        Modifier.size(18.dp)
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.width(6.dp)
+                )
+
+                Text(
+                    text =
+                        if (discovering) {
+                            "Buscando"
+                        } else {
+                            "Actualizar"
+                        },
+                    fontSize =
+                        12.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    color =
+                        Blue
+                )
+            }
         }
     }
 }
@@ -1958,109 +1971,118 @@ fun EmptyState(
     onRefresh: () -> Unit
 ) {
 
-    Column(
+    Surface(
         modifier =
             Modifier.fillMaxWidth(),
-        horizontalAlignment =
-            Alignment.CenterHorizontally
+        shape =
+            RoundedCornerShape(22.dp),
+        color =
+            CardWhite,
+        shadowElevation =
+            2.dp
     ) {
 
-        Spacer(
-            modifier =
-                Modifier.height(25.dp)
-        )
-
-        Box(
+        Column(
             modifier =
                 Modifier
-                    .size(70.dp)
-                    .background(
-                        SoftBlue,
-                        CircleShape
-                    ),
-            contentAlignment =
-                Alignment.Center
+                    .fillMaxWidth()
+                    .padding(25.dp),
+            horizontalAlignment =
+                Alignment.CenterHorizontally
         ) {
 
-            Icon(
-                imageVector =
-                    Icons.Default.Devices,
-                contentDescription =
-                    null,
-                tint =
-                    Blue,
+            Box(
                 modifier =
-                    Modifier.size(36.dp)
-            )
-        }
+                    Modifier
+                        .size(70.dp)
+                        .background(
+                            SoftBlue,
+                            CircleShape
+                        ),
+                contentAlignment =
+                    Alignment.Center
+            ) {
 
-        Spacer(
-            modifier =
-                Modifier.height(13.dp)
-        )
-
-        Text(
-            text =
-                if (discovering) {
-                    "Buscando pantallas..."
-                } else {
-                    "No hay pantallas conectadas"
-                },
-            fontSize =
-                17.sp,
-            fontWeight =
-                FontWeight.Bold,
-            color =
-                TextDark
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(6.dp)
-        )
-
-        Text(
-            text =
-                "Activa SmartTube Sync en tus receptores.",
-            fontSize =
-                12.sp,
-                color =
-                TextSecondary
-        )
-
-        Spacer(
-            modifier =
-                Modifier.height(13.dp)
-        )
-
-        Button(
-            onClick =
-                onRefresh,
-            colors =
-                ButtonDefaults.buttonColors(
-                    containerColor =
-                        Blue
-                ),
-            shape =
-                RoundedCornerShape(13.dp)
-        ) {
-
-            Icon(
-                imageVector =
-                    Icons.Default.Refresh,
-                contentDescription =
-                    null
-            )
+                Icon(
+                    imageVector =
+                        Icons.Default.Devices,
+                    contentDescription =
+                        null,
+                    tint =
+                        Blue,
+                    modifier =
+                        Modifier.size(36.dp)
+                )
+            }
 
             Spacer(
                 modifier =
-                    Modifier.width(7.dp)
+                    Modifier.height(13.dp)
             )
 
             Text(
                 text =
-                    "Buscar pantallas"
+                    if (discovering) {
+                        "Buscando pantallas..."
+                    } else {
+                        "No hay pantallas conectadas"
+                    },
+                fontSize =
+                    17.sp,
+                fontWeight =
+                    FontWeight.Bold,
+                color =
+                    TextDark
             )
+
+            Spacer(
+                modifier =
+                    Modifier.height(6.dp)
+            )
+
+            Text(
+                text =
+                    "Activa SmartTube Sync en tus receptores.",
+                fontSize =
+                    12.sp,
+                color =
+                    TextSecondary
+            )
+
+            Spacer(
+                modifier =
+                    Modifier.height(13.dp)
+            )
+
+            Button(
+                onClick =
+                    onRefresh,
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor =
+                            Blue
+                    ),
+                shape =
+                    RoundedCornerShape(13.dp)
+            ) {
+
+                Icon(
+                    imageVector =
+                        Icons.Default.Refresh,
+                    contentDescription =
+                        null
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.width(7.dp)
+                )
+
+                Text(
+                    text =
+                        "Actualizar pantallas"
+                )
+            }
         }
     }
 }
