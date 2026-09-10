@@ -22,9 +22,9 @@ class ReceiverConnection(
     companion object {
         private const val TAG = "YG_SYNC_CONNECTION"
 
-        private const val CONNECT_TIMEOUT_MS = 5000L
-        private const val RESPONSE_TIMEOUT_MS = 3000L
-        private const val READY_TIMEOUT_MS = 10000L
+        private const val CONNECT_TIMEOUT_MS = 4000L
+        private const val RESPONSE_TIMEOUT_MS = 2500L
+        private const val READY_TIMEOUT_MS = 5000L
     }
 
     constructor(
