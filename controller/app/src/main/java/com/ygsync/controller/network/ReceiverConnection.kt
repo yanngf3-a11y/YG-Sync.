@@ -1,6 +1,7 @@
 package com.ygsync.controller.network
 
 import android.util.Log
+import com.ygsync.controller.data.Receiver
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
@@ -11,7 +12,11 @@ import java.util.concurrent.TimeUnit
 
 class ReceiverConnection(
     private val address: String,
-    private val port: Int
+    private val port: Int,
+    private val onConnected: () -> Unit = {},
+    private val onDisconnected: () -> Unit = {},
+    private val onLatency: (Long) -> Unit = {},
+    private val onDiagnostic: (String) -> Unit = {}
 ) {
 
     companion object {
@@ -21,30 +26,54 @@ class ReceiverConnection(
         private const val READY_TIMEOUT_MS = 30000L
     }
 
+    /*
+     * Constructor compatible con ControllerSyncService.
+     */
+    constructor(
+        receiver: Receiver,
+        onConnected: () -> Unit = {},
+        onDisconnected: () -> Unit = {},
+        onLatency: (Long) -> Unit = {},
+        onDiagnostic: (String) -> Unit = {}
+    ) : this(
+        address = receiver.address,
+        port = receiver.port,
+        onConnected = onConnected,
+        onDisconnected = onDisconnected,
+        onLatency = onLatency,
+        onDiagnostic = onDiagnostic
+    )
+
     private var webSocket: WebSocketClient? = null
 
     @Volatile
     private var connected = false
 
+    /*
+     * Cada comando que espera respuesta tiene su propio latch.
+     *
+     * Esto reemplaza completamente wait()/notifyAll()
+     * y evita los errores de inferencia de Kotlin.
+     */
+    private data class PendingResponse(
+        val latch: CountDownLatch = CountDownLatch(1),
+        @Volatile var response: JSONObject? = null
+    )
+
     private val responseLock = Any()
 
     private val responses =
-        mutableMapOf<String, JSONObject>()
+        mutableMapOf<String, PendingResponse>()
 
     fun connect(): Boolean {
         disconnect()
 
         return try {
-            val uri =
-                URI(
-                    "ws://$address:$port"
-                )
+            val uri = URI("ws://$address:$port")
 
-            val connectionLatch =
-                CountDownLatch(1)
+            val connectionLatch = CountDownLatch(1)
 
-            var connectionResult =
-                false
+            var connectionResult = false
 
             val client =
                 object : WebSocketClient(uri) {
@@ -59,6 +88,13 @@ class ReceiverConnection(
 
                         connected = true
                         connectionResult = true
+
+                        onDiagnostic(
+                            "Conectado a $address:$port"
+                        )
+
+                        onConnected()
+
                         connectionLatch.countDown()
                     }
 
@@ -74,6 +110,10 @@ class ReceiverConnection(
                             "Mensaje recibido: $message"
                         )
 
+                        onDiagnostic(
+                            "RX: $message"
+                        )
+
                         try {
                             val json =
                                 JSONObject(message)
@@ -85,18 +125,29 @@ class ReceiverConnection(
                                 )
 
                             if (commandId.isNotEmpty()) {
-                                synchronized(responseLock) {
-                                    responses[commandId] =
-                                        json
+                                var pending: PendingResponse? = null
 
-                                    responseLock.notifyAll()
+                                synchronized(responseLock) {
+                                    pending =
+                                        responses[commandId]
+                                }
+
+                                pending?.let {
+                                    it.response = json
+                                    it.latch.countDown()
                                 }
                             }
+
                         } catch (e: Exception) {
+
                             Log.e(
                                 TAG,
                                 "Error procesando respuesta",
                                 e
+                            )
+
+                            onDiagnostic(
+                                "Error RX: ${e.message ?: "desconocido"}"
                             )
                         }
                     }
@@ -112,6 +163,12 @@ class ReceiverConnection(
                         )
 
                         connected = false
+
+                        onDiagnostic(
+                            "Desconectado de $address:$port"
+                        )
+
+                        onDisconnected()
                     }
 
                     override fun onError(
@@ -124,6 +181,13 @@ class ReceiverConnection(
                         )
 
                         connected = false
+
+                        onDiagnostic(
+                            "Error WebSocket: ${
+                                ex?.message ?: "desconocido"
+                            }"
+                        )
+
                         connectionLatch.countDown()
                     }
                 }
@@ -137,12 +201,18 @@ class ReceiverConnection(
                 )
 
             if (!completed || !connectionResult) {
+
                 try {
                     client.close()
                 } catch (_: Exception) {
                 }
 
                 connected = false
+
+                onDiagnostic(
+                    "Timeout conectando a $address:$port"
+                )
+
                 return false
             }
 
@@ -159,11 +229,17 @@ class ReceiverConnection(
             )
 
             connected = false
+
+            onDiagnostic(
+                "Error conexión: ${e.message ?: "desconocido"}"
+            )
+
             false
         }
     }
 
     fun ping(): Boolean {
+
         if (!isConnected()) {
             return false
         }
@@ -178,21 +254,31 @@ class ReceiverConnection(
                 payload = JSONObject()
             )
 
-        return sendAndWait(
-            json,
-            commandId,
-            RESPONSE_TIMEOUT_MS
-        ) { response ->
+        val start =
+            System.currentTimeMillis()
 
-            response.optString(
-                "type",
-                ""
-            ) == "pong"
-                    &&
-                    isSuccessfulResponse(
-                        response
-                    )
+        val result =
+            sendAndWait(
+                json,
+                commandId,
+                RESPONSE_TIMEOUT_MS
+            ) { response ->
+
+                response.optString(
+                    "type",
+                    ""
+                ) == "pong" &&
+                        isSuccessfulResponse(response)
+            }
+
+        if (result) {
+            val latency =
+                System.currentTimeMillis() - start
+
+            onLatency(latency)
         }
+
+        return result
     }
 
     fun send(
@@ -206,21 +292,15 @@ class ReceiverConnection(
         return try {
 
             val json =
-                convertLegacyCommand(
-                    command
-                )
-
-            if (json == null) {
-                Log.e(
-                    TAG,
-                    "Comando inválido: $command"
-                )
-
-                return false
-            }
+                convertLegacyCommand(command)
+                    ?: return false
 
             webSocket?.send(
                 json.toString()
+            )
+
+            onDiagnostic(
+                "TX: $json"
             )
 
             true
@@ -231,6 +311,10 @@ class ReceiverConnection(
                 TAG,
                 "Error enviando comando: $command",
                 e
+            )
+
+            onDiagnostic(
+                "Error TX: ${e.message ?: "desconocido"}"
             )
 
             false
@@ -249,13 +333,8 @@ class ReceiverConnection(
         return try {
 
             val json =
-                convertLegacyCommand(
-                    command
-                )
-
-            if (json == null) {
-                return false
-            }
+                convertLegacyCommand(command)
+                    ?: return false
 
             val commandId =
                 json.optString(
@@ -273,9 +352,7 @@ class ReceiverConnection(
                 timeoutMs
             ) { response ->
 
-                isSuccessfulResponse(
-                    response
-                )
+                isSuccessfulResponse(response)
             }
 
         } catch (e: Exception) {
@@ -329,13 +406,14 @@ class ReceiverConnection(
             "Solicitando video: $cleanVideoId"
         )
 
+        onDiagnostic(
+            "LOAD: $cleanVideoId"
+        )
+
         return try {
 
-            webSocket?.send(
-                json.toString()
-            )
-
-            waitForResponse(
+            sendAndWait(
+                json,
                 commandId,
                 timeoutMs
             ) { response ->
@@ -347,7 +425,7 @@ class ReceiverConnection(
                     )
 
                 if (type != "ready") {
-                    return@waitForResponse false
+                    return@sendAndWait false
                 }
 
                 if (
@@ -355,7 +433,7 @@ class ReceiverConnection(
                         response
                     )
                 ) {
-                    return@waitForResponse false
+                    return@sendAndWait false
                 }
 
                 val responsePayload =
@@ -364,13 +442,14 @@ class ReceiverConnection(
                     )
 
                 val responseVideoId =
-                    responsePayload?.optString(
-                        "videoId",
-                        ""
-                    )?.trim()
+                    responsePayload
+                        ?.optString(
+                            "videoId",
+                            ""
+                        )
+                        ?.trim()
 
-                responseVideoId ==
-                        cleanVideoId
+                responseVideoId == cleanVideoId
             }
 
         } catch (e: Exception) {
@@ -379,6 +458,12 @@ class ReceiverConnection(
                 TAG,
                 "Error esperando READY de $cleanVideoId",
                 e
+            )
+
+            onDiagnostic(
+                "READY ERROR: ${
+                    e.message ?: "desconocido"
+                }"
             )
 
             false
@@ -403,11 +488,8 @@ class ReceiverConnection(
 
         return try {
 
-            webSocket?.send(
-                json.toString()
-            )
-
-            waitForResponse(
+            sendAndWaitForJson(
+                json,
                 commandId,
                 RESPONSE_TIMEOUT_MS
             ) { response ->
@@ -415,11 +497,8 @@ class ReceiverConnection(
                 response.optString(
                     "type",
                     ""
-                ) == "status"
-                        &&
-                        isSuccessfulResponse(
-                            response
-                        )
+                ) == "status" &&
+                        isSuccessfulResponse(response)
             }
 
         } catch (e: Exception) {
@@ -446,6 +525,10 @@ class ReceiverConnection(
 
             webSocket?.send(
                 json.toString()
+            )
+
+            onDiagnostic(
+                "TX JSON: $json"
             )
 
             true
@@ -479,8 +562,13 @@ class ReceiverConnection(
         webSocket = null
 
         synchronized(responseLock) {
+
+            responses.values.forEach {
+                it.response = null
+                it.latch.countDown()
+            }
+
             responses.clear()
-            responseLock.notifyAll()
         }
     }
 
@@ -491,81 +579,86 @@ class ReceiverConnection(
         validator: (JSONObject) -> Boolean
     ): Boolean {
 
-        try {
-
-            webSocket?.send(
-                json.toString()
+        val response =
+            sendAndWaitForJson(
+                json,
+                commandId,
+                timeoutMs,
+                validator
             )
 
-            val response =
-                waitForResponse(
-                    commandId,
-                    timeoutMs,
-                    validator
-                )
-
-            return response != null
-
-        } catch (e: Exception) {
-
-            Log.e(
-                TAG,
-                "Error sendAndWait",
-                e
-            )
-
-            return false
-        }
+        return response != null
     }
 
-    private fun waitForResponse(
+    private fun sendAndWaitForJson(
+        json: JSONObject,
         commandId: String,
         timeoutMs: Long,
         validator: (JSONObject) -> Boolean
     ): JSONObject? {
 
-        val start =
-            System.currentTimeMillis()
+        if (!isConnected()) {
+            return null
+        }
+
+        val pending =
+            PendingResponse()
 
         synchronized(responseLock) {
+            responses[commandId] =
+                pending
+        }
 
-            responses.remove(
-                commandId
+        return try {
+
+            webSocket?.send(
+                json.toString()
             )
 
-            while (true) {
+            onDiagnostic(
+                "TX: $json"
+            )
 
-                val response =
-                    responses.remove(
-                        commandId
-                    )
+            val completed =
+                pending.latch.await(
+                    timeoutMs,
+                    TimeUnit.MILLISECONDS
+                )
 
-                if (
-                    response != null &&
-                    validator(response)
-                ) {
-                    return response
-                }
+            if (!completed) {
 
-                val elapsed =
-                    System.currentTimeMillis()
-                            - start
+                Log.w(
+                    TAG,
+                    "Timeout esperando respuesta: $commandId"
+                )
 
-                val remaining =
-                    timeoutMs - elapsed
+                return null
+            }
 
-                if (remaining <= 0) {
-                    return null
-                }
+            val response =
+                pending.response
+                    ?: return null
 
-                try {
-                    responseLock.wait(
-                        remaining
-                    )
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    return null
-                }
+            if (!validator(response)) {
+                return null
+            }
+
+            response
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Error esperando respuesta",
+                e
+            )
+
+            null
+
+        } finally {
+
+            synchronized(responseLock) {
+                responses.remove(commandId)
             }
         }
     }
@@ -598,10 +691,11 @@ class ReceiverConnection(
         val payload =
             JSONObject()
 
-        when (type) {
+        return when (type) {
 
             "PLAY" -> {
-                return createMessage(
+
+                createMessage(
                     "play",
                     commandId,
                     payload
@@ -609,7 +703,8 @@ class ReceiverConnection(
             }
 
             "PAUSE" -> {
-                return createMessage(
+
+                createMessage(
                     "pause",
                     commandId,
                     payload
@@ -617,7 +712,8 @@ class ReceiverConnection(
             }
 
             "STOP" -> {
-                return createMessage(
+
+                createMessage(
                     "stop",
                     commandId,
                     payload
@@ -642,7 +738,7 @@ class ReceiverConnection(
                     videoId
                 )
 
-                return createMessage(
+                createMessage(
                     "open",
                     commandId,
                     payload
@@ -669,7 +765,7 @@ class ReceiverConnection(
                     )
                 )
 
-                return createMessage(
+                createMessage(
                     "seek",
                     commandId,
                     payload
@@ -696,7 +792,7 @@ class ReceiverConnection(
                     )
                 )
 
-                return createMessage(
+                createMessage(
                     "setVolume",
                     commandId,
                     payload
@@ -705,7 +801,7 @@ class ReceiverConnection(
 
             "GET_STATUS" -> {
 
-                return createMessage(
+                createMessage(
                     "getStatus",
                     commandId,
                     payload
@@ -714,7 +810,7 @@ class ReceiverConnection(
 
             "NEXT" -> {
 
-                return createMessage(
+                createMessage(
                     "next",
                     commandId,
                     payload
@@ -723,16 +819,23 @@ class ReceiverConnection(
 
             "PREVIOUS" -> {
 
-                return createMessage(
+                createMessage(
                     "previous",
                     commandId,
                     payload
                 )
             }
 
-            else -> {
-                return null
+            "SYNC" -> {
+
+                createMessage(
+                    "sync",
+                    commandId,
+                    payload
+                )
             }
+
+            else -> null
         }
     }
 
