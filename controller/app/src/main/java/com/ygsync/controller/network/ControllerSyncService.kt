@@ -17,6 +17,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,6 +54,17 @@ class ControllerSyncService : Service() {
 
     private var discoveryJob: Job? = null
 
+    private var mirrorJob: Job? = null
+
+    /*
+     * Último videoId que sabemos que está sonando
+     * "oficialmente" en todas las pantallas (ya sea porque
+     * lo mandamos nosotros o porque lo detectamos en la
+     * pantalla de referencia).
+     */
+    @Volatile
+    private var lastKnownVideoId: String? = null
+
     private val _receiverList = MutableStateFlow<List<Receiver>>(emptyList())
     val receiverList: StateFlow<List<Receiver>> = _receiverList.asStateFlow()
 
@@ -84,6 +97,7 @@ class ControllerSyncService : Service() {
         updateDiagnostic("YG SYNC — CONTROLADOR ACTIVO")
 
         startDiscovery()
+        startAutoplayMirror()
     }
 
     override fun onStartCommand(
@@ -108,6 +122,7 @@ class ControllerSyncService : Service() {
 
     override fun onDestroy() {
         discoveryJob?.cancel()
+        mirrorJob?.cancel()
 
         connections.values.forEach {
             try {
@@ -162,6 +177,118 @@ class ControllerSyncService : Service() {
             updateDiagnostic(
                 "YG SYNC — BÚSQUEDA FINALIZADA (${_receiverList.value.size})"
             )
+        }
+    }
+
+    /**
+     * Modo "bar": si nadie manda un video desde la app, cada
+     * SmartTube sigue solo con su propio autoplay/relacionados
+     * y las pantallas terminan mostrando cosas distintas.
+     *
+     * Esta función usa la primera pantalla conectada como
+     * "referencia": cada 2 segundos le pregunta qué video está
+     * sonando (GET_STATUS). Si cambió sola (autoplay), replica
+     * ese mismo video al resto de las pantallas conectadas,
+     * sin esperar confirmación de nadie (para no cortar el
+     * audio de las que ya están sonando bien).
+     */
+    fun startAutoplayMirror() {
+
+        mirrorJob?.cancel()
+
+        mirrorJob = serviceScope.launch(Dispatchers.IO) {
+
+            while (isActive) {
+
+                try {
+
+                    val reference =
+                        _receiverList.value
+                            .firstOrNull { it.connected }
+
+                    if (reference != null) {
+
+                        val status =
+                            connections[reference.id]
+                                ?.getStatus()
+
+                        val payload =
+                            status?.optJSONObject(
+                                "payload"
+                            )
+
+                        val videoId =
+                            payload
+                                ?.optString(
+                                    "videoId",
+                                    ""
+                                )
+                                ?.trim()
+
+                        if (
+                            !videoId.isNullOrEmpty() &&
+                            videoId != lastKnownVideoId
+                        ) {
+
+                            lastKnownVideoId = videoId
+
+                            updateDiagnostic(
+                                "YG SYNC — AUTOPLAY DETECTADO EN " +
+                                    "${reference.name}: $videoId"
+                            )
+
+                            mirrorToOtherScreens(
+                                referenceId = reference.id,
+                                videoId = videoId
+                            )
+                        }
+                    }
+
+                } catch (e: Exception) {
+
+                    /*
+                     * Un fallo puntual (por ejemplo, un timeout
+                     * de GET_STATUS) no debe frenar el mirror.
+                     * Simplemente lo reintentamos en el
+                     * siguiente ciclo.
+                     */
+                }
+
+                delay(2000)
+            }
+        }
+    }
+
+    /**
+     * Envía el mismo video a todas las pantallas conectadas
+     * excepto a la de referencia, sin bloquear esperando
+     * confirmación de cada una (para no dejar en silencio a
+     * las que ya están bien).
+     */
+    private fun mirrorToOtherScreens(
+        referenceId: String,
+        videoId: String
+    ) {
+
+        val others =
+            _receiverList.value.filter {
+                it.id != referenceId && it.connected
+            }
+
+        others.forEach { receiver ->
+
+            serviceScope.launch(Dispatchers.IO) {
+
+                try {
+
+                    connections[receiver.id]
+                        ?.sendAndWait(
+                            "LOAD_VIDEO|$videoId"
+                        )
+
+                } catch (_: Exception) {
+                }
+            }
         }
     }
 
@@ -390,6 +517,14 @@ class ControllerSyncService : Service() {
 
             return false
         }
+
+        /*
+         * Este video fue elegido por vos desde la app, no por
+         * el autoplay. Lo marcamos como "conocido" para que el
+         * mirror de autoplay no lo vuelva a reenviar de nuevo
+         * cuando lo detecte en la pantalla de referencia.
+         */
+        lastKnownVideoId = cleanVideoId
 
         val receivers =
             _receiverList.value.toList()
