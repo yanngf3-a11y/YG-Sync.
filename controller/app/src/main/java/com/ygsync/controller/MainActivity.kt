@@ -66,7 +66,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -855,8 +854,8 @@ fun Header() {
                     10.sp,
                 fontWeight =
                     FontWeight.Bold,
-                color =
-                    Success
+                    color =
+                        Success
             )
         }
     }
@@ -1730,10 +1729,6 @@ fun NowPlayingCard(
                     Modifier.height(11.dp)
             )
 
-            /*
-             * ESTE BOTÓN SIEMPRE PERMANECE EN LA INTERFAZ.
-             * Solo cambia su texto/estado mientras espera READY.
-             */
             Button(
                 onClick =
                     onLoad,
