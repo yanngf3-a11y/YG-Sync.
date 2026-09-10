@@ -21,9 +21,25 @@ class ReceiverConnection(
 
     companion object {
         private const val TAG = "YG_SYNC_CONNECTION"
+
+        /*
+         * La conexión TCP/WebSocket solamente necesita unos pocos
+         * segundos para establecerse.
+         */
         private const val CONNECT_TIMEOUT_MS = 5000L
-        private const val RESPONSE_TIMEOUT_MS = 5000L
-        private const val READY_TIMEOUT_MS = 30000L
+
+        /*
+         * ACK de comandos normales.
+         */
+        private const val RESPONSE_TIMEOUT_MS = 3000L
+
+        /*
+         * Antes eran 30 segundos.
+         *
+         * 8 segundos evita que una pantalla lenta congele
+         * todo el envío durante demasiado tiempo.
+         */
+        private const val READY_TIMEOUT_MS = 8000L
     }
 
     /*
@@ -49,12 +65,6 @@ class ReceiverConnection(
     @Volatile
     private var connected = false
 
-    /*
-     * Cada comando que espera respuesta tiene su propio latch.
-     *
-     * Esto reemplaza completamente wait()/notifyAll()
-     * y evita los errores de inferencia de Kotlin.
-     */
     private data class PendingResponse(
         val latch: CountDownLatch = CountDownLatch(1),
         @Volatile var response: JSONObject? = null
@@ -65,13 +75,27 @@ class ReceiverConnection(
     private val responses =
         mutableMapOf<String, PendingResponse>()
 
+    /*
+     * ---------------------------------------------------------
+     * CONEXIÓN
+     * ---------------------------------------------------------
+     */
+
     fun connect(): Boolean {
+
+        /*
+         * Cerramos cualquier conexión anterior sin dejar
+         * respuestas pendientes.
+         */
         disconnect()
 
         return try {
-            val uri = URI("ws://$address:$port")
 
-            val connectionLatch = CountDownLatch(1)
+            val uri =
+                URI("ws://$address:$port")
+
+            val connectionLatch =
+                CountDownLatch(1)
 
             var connectionResult = false
 
@@ -81,6 +105,7 @@ class ReceiverConnection(
                     override fun onOpen(
                         handshake: ServerHandshake?
                     ) {
+
                         Log.d(
                             TAG,
                             "Conectado a $address:$port"
@@ -101,6 +126,7 @@ class ReceiverConnection(
                     override fun onMessage(
                         message: String?
                     ) {
+
                         if (message == null) {
                             return
                         }
@@ -115,6 +141,7 @@ class ReceiverConnection(
                         )
 
                         try {
+
                             val json =
                                 JSONObject(message)
 
@@ -124,16 +151,21 @@ class ReceiverConnection(
                                     ""
                                 )
 
+                            /*
+                             * Las respuestas READY, ACK, PONG,
+                             * STATUS, ERROR, etc. llegan aquí.
+                             */
                             if (commandId.isNotEmpty()) {
-                                var pending: PendingResponse? = null
 
-                                synchronized(responseLock) {
-                                    pending =
+                                val pending =
+                                    synchronized(responseLock) {
                                         responses[commandId]
-                                }
+                                    }
 
                                 pending?.let {
+
                                     it.response = json
+
                                     it.latch.countDown()
                                 }
                             }
@@ -147,7 +179,9 @@ class ReceiverConnection(
                             )
 
                             onDiagnostic(
-                                "Error RX: ${e.message ?: "desconocido"}"
+                                "Error RX: ${
+                                    e.message ?: "desconocido"
+                                }"
                             )
                         }
                     }
@@ -157,6 +191,7 @@ class ReceiverConnection(
                         reason: String?,
                         remote: Boolean
                     ) {
+
                         Log.d(
                             TAG,
                             "Desconectado de $address:$port"
@@ -168,12 +203,17 @@ class ReceiverConnection(
                             "Desconectado de $address:$port"
                         )
 
+                        /*
+                         * El ControllerSyncService se encarga
+                         * posteriormente de la reconexión.
+                         */
                         onDisconnected()
                     }
 
                     override fun onError(
                         ex: Exception?
                     ) {
+
                         Log.e(
                             TAG,
                             "Error WebSocket",
@@ -192,6 +232,10 @@ class ReceiverConnection(
                     }
                 }
 
+            /*
+             * No usamos connectBlocking().
+             * El WebSocket trabaja en su propio hilo.
+             */
             client.connect()
 
             val completed =
@@ -200,7 +244,10 @@ class ReceiverConnection(
                     TimeUnit.MILLISECONDS
                 )
 
-            if (!completed || !connectionResult) {
+            if (
+                !completed ||
+                !connectionResult
+            ) {
 
                 try {
                     client.close()
@@ -216,6 +263,10 @@ class ReceiverConnection(
                 return false
             }
 
+            /*
+             * Solamente guardamos el socket después
+             * de confirmar que la conexión fue exitosa.
+             */
             webSocket = client
 
             true
@@ -231,12 +282,20 @@ class ReceiverConnection(
             connected = false
 
             onDiagnostic(
-                "Error conexión: ${e.message ?: "desconocido"}"
+                "Error conexión: ${
+                    e.message ?: "desconocido"
+                }"
             )
 
             false
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * PING
+     * ---------------------------------------------------------
+     */
 
     fun ping(): Boolean {
 
@@ -268,10 +327,13 @@ class ReceiverConnection(
                     "type",
                     ""
                 ) == "pong" &&
-                        isSuccessfulResponse(response)
+                        isSuccessfulResponse(
+                            response
+                        )
             }
 
         if (result) {
+
             val latency =
                 System.currentTimeMillis() - start
 
@@ -280,6 +342,12 @@ class ReceiverConnection(
 
         return result
     }
+
+    /*
+     * ---------------------------------------------------------
+     * ENVÍO SIMPLE
+     * ---------------------------------------------------------
+     */
 
     fun send(
         command: String
@@ -314,12 +382,20 @@ class ReceiverConnection(
             )
 
             onDiagnostic(
-                "Error TX: ${e.message ?: "desconocido"}"
+                "Error TX: ${
+                    e.message ?: "desconocido"
+                }"
             )
 
             false
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * ENVÍO + ACK
+     * ---------------------------------------------------------
+     */
 
     fun sendAndWait(
         command: String,
@@ -352,7 +428,9 @@ class ReceiverConnection(
                 timeoutMs
             ) { response ->
 
-                isSuccessfulResponse(response)
+                isSuccessfulResponse(
+                    response
+                )
             }
 
         } catch (e: Exception) {
@@ -366,6 +444,22 @@ class ReceiverConnection(
             false
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * LOAD VIDEO
+     * ---------------------------------------------------------
+     *
+     * La diferencia importante está aquí:
+     *
+     * ANTES:
+     * READY podía tardar hasta 30 segundos.
+     *
+     * AHORA:
+     * máximo 8 segundos.
+     *
+     * Además, el envío del OPEN ocurre inmediatamente.
+     */
 
     fun loadVideoAndWaitReady(
         videoId: String,
@@ -412,45 +506,78 @@ class ReceiverConnection(
 
         return try {
 
-            sendAndWait(
-                json,
-                commandId,
-                timeoutMs
-            ) { response ->
+            val startTime =
+                System.currentTimeMillis()
 
-                val type =
-                    response.optString(
-                        "type",
-                        ""
-                    )
+            val response =
+                sendAndWaitForJson(
+                    json = json,
+                    commandId = commandId,
+                    timeoutMs = timeoutMs
+                ) { response ->
 
-                if (type != "ready") {
-                    return@sendAndWait false
-                }
-
-                if (
-                    !isSuccessfulResponse(
-                        response
-                    )
-                ) {
-                    return@sendAndWait false
-                }
-
-                val responsePayload =
-                    response.optJSONObject(
-                        "payload"
-                    )
-
-                val responseVideoId =
-                    responsePayload
-                        ?.optString(
-                            "videoId",
+                    val type =
+                        response.optString(
+                            "type",
                             ""
                         )
-                        ?.trim()
 
-                responseVideoId == cleanVideoId
+                    /*
+                     * Para LOAD solamente aceptamos READY.
+                     *
+                     * Esto mantiene la sincronización:
+                     * no declaramos el video listo solamente
+                     * porque el comando fue enviado.
+                     */
+                    type == "ready" &&
+                            isSuccessfulResponse(
+                                response
+                            )
+                }
+
+            if (response == null) {
+
+                val elapsed =
+                    System.currentTimeMillis() - startTime
+
+                onDiagnostic(
+                    "READY TIMEOUT: ${
+                        elapsed
+                    }ms — $cleanVideoId"
+                )
+
+                return false
             }
+
+            val responsePayload =
+                response.optJSONObject(
+                    "payload"
+                )
+
+            val responseVideoId =
+                responsePayload
+                    ?.optString(
+                        "videoId",
+                        ""
+                    )
+                    ?.trim()
+
+            val valid =
+                responseVideoId == cleanVideoId
+
+            if (valid) {
+
+                val elapsed =
+                    System.currentTimeMillis() - startTime
+
+                onDiagnostic(
+                    "READY OK: ${
+                        elapsed
+                    }ms — $cleanVideoId"
+                )
+            }
+
+            valid
 
         } catch (e: Exception) {
 
@@ -469,6 +596,12 @@ class ReceiverConnection(
             false
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * STATUS
+     * ---------------------------------------------------------
+     */
 
     fun getStatus(): JSONObject? {
 
@@ -498,7 +631,9 @@ class ReceiverConnection(
                     "type",
                     ""
                 ) == "status" &&
-                        isSuccessfulResponse(response)
+                        isSuccessfulResponse(
+                            response
+                        )
             }
 
         } catch (e: Exception) {
@@ -512,6 +647,12 @@ class ReceiverConnection(
             null
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * ENVÍO JSON DIRECTO
+     * ---------------------------------------------------------
+     */
 
     fun sendJson(
         json: JSONObject
@@ -541,14 +682,33 @@ class ReceiverConnection(
                 e
             )
 
+            onDiagnostic(
+                "Error TX JSON: ${
+                    e.message ?: "desconocido"
+                }"
+            )
+
             false
         }
     }
 
+    /*
+     * ---------------------------------------------------------
+     * ESTADO
+     * ---------------------------------------------------------
+     */
+
     fun isConnected(): Boolean {
+
         return connected &&
                 webSocket?.isOpen == true
     }
+
+    /*
+     * ---------------------------------------------------------
+     * DESCONECTAR
+     * ---------------------------------------------------------
+     */
 
     fun disconnect() {
 
@@ -564,13 +724,21 @@ class ReceiverConnection(
         synchronized(responseLock) {
 
             responses.values.forEach {
+
                 it.response = null
+
                 it.latch.countDown()
             }
 
             responses.clear()
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * ENVÍO INTERNO + ESPERA
+     * ---------------------------------------------------------
+     */
 
     private fun sendAndWait(
         json: JSONObject,
@@ -605,13 +773,29 @@ class ReceiverConnection(
             PendingResponse()
 
         synchronized(responseLock) {
+
             responses[commandId] =
                 pending
         }
 
         return try {
 
-            webSocket?.send(
+            /*
+             * El socket debe estar abierto antes
+             * de intentar enviar.
+             */
+            val socket =
+                webSocket
+
+            if (
+                socket == null ||
+                !socket.isOpen
+            ) {
+
+                return null
+            }
+
+            socket.send(
                 json.toString()
             )
 
@@ -640,6 +824,12 @@ class ReceiverConnection(
                     ?: return null
 
             if (!validator(response)) {
+
+                Log.w(
+                    TAG,
+                    "Respuesta no válida: $response"
+                )
+
                 return null
             }
 
@@ -653,15 +843,30 @@ class ReceiverConnection(
                 e
             )
 
+            onDiagnostic(
+                "ERROR WAIT: ${
+                    e.message ?: "desconocido"
+                }"
+            )
+
             null
 
         } finally {
 
             synchronized(responseLock) {
-                responses.remove(commandId)
+
+                responses.remove(
+                    commandId
+                )
             }
         }
     }
+
+    /*
+     * ---------------------------------------------------------
+     * CONVERSIÓN DE COMANDOS LEGACY
+     * ---------------------------------------------------------
+     */
 
     private fun convertLegacyCommand(
         command: String
@@ -839,6 +1044,12 @@ class ReceiverConnection(
         }
     }
 
+    /*
+     * ---------------------------------------------------------
+     * CREAR MENSAJE
+     * ---------------------------------------------------------
+     */
+
     private fun createMessage(
         type: String,
         commandId: String,
@@ -875,6 +1086,12 @@ class ReceiverConnection(
 
         return json
     }
+
+    /*
+     * ---------------------------------------------------------
+     * RESPUESTA EXITOSA
+     * ---------------------------------------------------------
+     */
 
     private fun isSuccessfulResponse(
         response: JSONObject
