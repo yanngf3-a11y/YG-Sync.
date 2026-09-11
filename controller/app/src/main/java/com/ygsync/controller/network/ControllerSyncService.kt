@@ -669,6 +669,71 @@ class ControllerSyncService : Service() {
     }
 
     /**
+     * Salta al siguiente video en todas las pantallas.
+     */
+    fun nextAll() {
+
+        sendCommandAsync(
+            command = "NEXT"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — NEXT ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Vuelve al video anterior en todas las pantallas.
+     */
+    fun previousAll() {
+
+        sendCommandAsync(
+            command = "PREVIOUS"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — PREVIOUS ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Salta a una posición (en milisegundos) en todas las
+     * pantallas.
+     */
+    fun seekAll(positionMs: Long) {
+
+        val safePosition = maxOf(0L, positionMs)
+
+        sendCommandAsync(
+            command = "SEEK|$safePosition"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — SEEK $safePosition ms ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Ajusta el volumen (0f..1f) en todas las pantallas.
+     */
+    fun setVolumeAll(volume: Float) {
+
+        val safeVolume = volume.coerceIn(0f, 1f)
+
+        sendCommandAsync(
+            command = "SET_VOLUME|$safeVolume"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — VOLUMEN $safeVolume ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
      * Solicita estado a todas las pantallas.
      */
     fun getStatusAll() {
