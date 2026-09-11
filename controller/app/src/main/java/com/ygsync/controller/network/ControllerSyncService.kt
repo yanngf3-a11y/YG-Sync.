@@ -333,6 +333,9 @@ class ControllerSyncService : Service() {
      * responder) aunque el cierre de la conexión nunca haya
      * llegado a avisarnos — y las reconecta solas.
      */
+    private val reconnectInFlight =
+        ConcurrentHashMap<String, Boolean>()
+
     fun startKeepAlive() {
 
         keepAliveJob?.cancel()
@@ -351,11 +354,9 @@ class ControllerSyncService : Service() {
 
                         val connection =
                             connections[receiver.id]
+                                ?: return@forEach
 
-                        if (
-                            connection != null &&
-                            connection.isConnected()
-                        ) {
+                        if (connection.isConnected()) {
 
                             launch(Dispatchers.IO) {
 
@@ -368,23 +369,74 @@ class ControllerSyncService : Service() {
 
                                 if (!alive) {
 
-                                    updateDiagnostic(
-                                        "YG SYNC — SIN RESPUESTA DE " +
-                                            "${receiver.name}, RECONECTANDO"
-                                    )
-
                                     updateConnectionState(
                                         receiver.id,
                                         false
                                     )
 
-                                    connectReceiver(receiver.id)
+                                    attemptReconnect(
+                                        receiver,
+                                        connection
+                                    )
                                 }
                             }
+
+                        } else {
+
+                            /*
+                             * Ya estaba desconectada: la
+                             * volvemos a intentar acá, sin
+                             * esperar a que el usuario toque
+                             * "Buscar" de nuevo.
+                             */
+                            attemptReconnect(
+                                receiver,
+                                connection
+                            )
                         }
                     }
                 }
             }
+    }
+
+    /**
+     * Reconecta una pantalla, evitando que se disparen dos
+     * intentos al mismo tiempo para la misma pantalla (eso
+     * fue justamente lo que causaba el bucle infinito de
+     * conectado/desconectado).
+     */
+    private fun attemptReconnect(
+        receiver: Receiver,
+        connection: ReceiverConnection
+    ) {
+
+        if (reconnectInFlight[receiver.id] == true) {
+            return
+        }
+
+        reconnectInFlight[receiver.id] = true
+
+        serviceScope.launch(Dispatchers.IO) {
+
+            try {
+
+                updateDiagnostic(
+                    "YG SYNC — RECONECTANDO: ${receiver.name}"
+                )
+
+                connection.connect()
+
+            } catch (e: Exception) {
+
+                updateDiagnostic(
+                    "YG SYNC — ERROR RECONECTANDO: ${e.message ?: "desconocido"}"
+                )
+
+            } finally {
+
+                reconnectInFlight[receiver.id] = false
+            }
+        }
     }
 
     /**
@@ -449,14 +501,17 @@ class ControllerSyncService : Service() {
                     )
 
                     /*
-                     * No esperamos a que el usuario vuelva a
-                     * buscar ni reinicie nada: reintentamos
-                     * solos a los pocos segundos.
+                     * IMPORTANTE: acá NO reintentamos de
+                     * inmediato. Cada vez que nosotros mismos
+                     * reconectamos (connect() cierra la
+                     * conexión vieja antes de abrir la nueva),
+                     * eso dispara este mismo callback — si acá
+                     * programáramos otro reintento, se arma un
+                     * bucle infinito de desconectar/reconectar
+                     * que nunca termina. La reconexión real
+                     * queda a cargo del latido (startKeepAlive),
+                     * que sí controla que no se solapen intentos.
                      */
-                    serviceScope.launch(Dispatchers.IO) {
-                        delay(3000)
-                        connectReceiver(receiver.id)
-                    }
                 },
                 onLatency = { latency ->
                     updateLatency(
