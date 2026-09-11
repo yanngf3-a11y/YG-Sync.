@@ -56,6 +56,8 @@ class ControllerSyncService : Service() {
 
     private var mirrorJob: Job? = null
 
+    private var keepAliveJob: Job? = null
+
     /*
      * Último videoId que sabemos que está sonando
      * "oficialmente" en todas las pantallas (ya sea porque
@@ -103,6 +105,7 @@ class ControllerSyncService : Service() {
 
         startDiscovery()
         startAutoplayMirror()
+        startKeepAlive()
     }
 
     override fun onStartCommand(
@@ -128,6 +131,7 @@ class ControllerSyncService : Service() {
     override fun onDestroy() {
         discoveryJob?.cancel()
         mirrorJob?.cancel()
+        keepAliveJob?.cancel()
 
         connections.values.forEach {
             try {
@@ -320,6 +324,70 @@ class ControllerSyncService : Service() {
     }
 
     /**
+     * "Latido" cada 20 segundos: le pregunta a cada pantalla
+     * conectada si sigue realmente ahí (ping/pong).
+     *
+     * Esto sirve para dos cosas: mantiene viva la conexión
+     * frente a routers que cierran conexiones inactivas sin
+     * avisar, y detecta pantallas "muertas" (que dejaron de
+     * responder) aunque el cierre de la conexión nunca haya
+     * llegado a avisarnos — y las reconecta solas.
+     */
+    fun startKeepAlive() {
+
+        keepAliveJob?.cancel()
+
+        keepAliveJob =
+            serviceScope.launch(Dispatchers.IO) {
+
+                while (isActive) {
+
+                    delay(20000)
+
+                    val snapshot =
+                        _receiverList.value
+
+                    snapshot.forEach { receiver ->
+
+                        val connection =
+                            connections[receiver.id]
+
+                        if (
+                            connection != null &&
+                            connection.isConnected()
+                        ) {
+
+                            launch(Dispatchers.IO) {
+
+                                val alive =
+                                    try {
+                                        connection.ping()
+                                    } catch (_: Exception) {
+                                        false
+                                    }
+
+                                if (!alive) {
+
+                                    updateDiagnostic(
+                                        "YG SYNC — SIN RESPUESTA DE " +
+                                            "${receiver.name}, RECONECTANDO"
+                                    )
+
+                                    updateConnectionState(
+                                        receiver.id,
+                                        false
+                                    )
+
+                                    connectReceiver(receiver.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
+    /**
      * Registra una pantalla y crea su conexión persistente.
      */
     fun registerReceiver(receiver: Receiver) {
@@ -379,6 +447,16 @@ class ControllerSyncService : Service() {
                     updateDiagnostic(
                         "YG SYNC — DESCONECTADO: ${receiver.name}"
                     )
+
+                    /*
+                     * No esperamos a que el usuario vuelva a
+                     * buscar ni reinicie nada: reintentamos
+                     * solos a los pocos segundos.
+                     */
+                    serviceScope.launch(Dispatchers.IO) {
+                        delay(3000)
+                        connectReceiver(receiver.id)
+                    }
                 },
                 onLatency = { latency ->
                     updateLatency(
