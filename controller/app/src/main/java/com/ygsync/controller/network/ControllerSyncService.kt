@@ -18,175 +18,140 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 class ControllerSyncService : Service() {
 
-companion object {
-    const val ACTION_START =
-        "com.ygsync.controller.action.START"
+    companion object {
+        const val ACTION_START = "com.ygsync.controller.action.START"
+        private const val CHANNEL_ID = "ygsync_controller"
+        private const val NOTIFICATION_ID = 1001
 
-    private const val CHANNEL_ID =
-        "ygsync_controller"
+        @Volatile
+        private var instance: ControllerSyncService? = null
 
-    private const val NOTIFICATION_ID =
-        1001
+        fun getInstance(): ControllerSyncService? = instance
+    }
 
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(
+        Dispatchers.Main.immediate + serviceJob
+    )
+
+    private val connections =
+        ConcurrentHashMap<String, ReceiverConnection>()
+
+    private val discovery by lazy {
+        ReceiverDiscovery(applicationContext)
+    }
+
+    private var discoveryJob: Job? = null
+
+    private var mirrorJob: Job? = null
+
+    /*
+     * Último videoId que sabemos que está sonando
+     * "oficialmente" en todas las pantallas (ya sea porque
+     * lo mandamos nosotros o porque lo detectamos en la
+     * pantalla de referencia).
+     */
     @Volatile
-    private var instance:
-        ControllerSyncService? = null
+    private var lastKnownVideoId: String? = null
 
-    fun getInstance():
-        ControllerSyncService? = instance
-}
+    private val _receiverList = MutableStateFlow<List<Receiver>>(emptyList())
+    val receiverList: StateFlow<List<Receiver>> = _receiverList.asStateFlow()
 
-private val serviceJob =
-    SupervisorJob()
+    private val _connectionStates =
+        MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val connectionStates: StateFlow<Map<String, Boolean>> =
+        _connectionStates.asStateFlow()
 
-private val serviceScope =
-    CoroutineScope(
-        Dispatchers.Main.immediate +
-            serviceJob
-    )
+    private val _latencies =
+        MutableStateFlow<Map<String, Long>>(emptyMap())
+    val latencies: StateFlow<Map<String, Long>> =
+        _latencies.asStateFlow()
 
-private val connections =
-    ConcurrentHashMap<
-        String,
-        ReceiverConnection
-    >()
+    private val _diagnostic =
+        MutableStateFlow("YG SYNC — Servicio iniciado")
+    val diagnostic: StateFlow<String> =
+        _diagnostic.asStateFlow()
 
-private val discovery by lazy {
-    ReceiverDiscovery(applicationContext)
-}
+    override fun onCreate() {
+        super.onCreate()
 
-private var discoveryJob:
-    Job? = null
+        instance = this
 
-private var mirrorJob:
-    Job? = null
-
-@Volatile
-private var lastKnownVideoId:
-    String? = null
-
-private val _receiverList =
-    MutableStateFlow<List<Receiver>>(
-        emptyList()
-    )
-
-val receiverList:
-    StateFlow<List<Receiver>> =
-    _receiverList.asStateFlow()
-
-private val _connectionStates =
-    MutableStateFlow<Map<String, Boolean>>(
-        emptyMap()
-    )
-
-val connectionStates:
-    StateFlow<Map<String, Boolean>> =
-    _connectionStates.asStateFlow()
-
-private val _latencies =
-    MutableStateFlow<Map<String, Long>>(
-        emptyMap()
-    )
-
-val latencies:
-    StateFlow<Map<String, Long>> =
-    _latencies.asStateFlow()
-
-private val _diagnostic =
-    MutableStateFlow(
-        "YG SYNC — Servicio iniciado"
-    )
-
-val diagnostic:
-    StateFlow<String> =
-    _diagnostic.asStateFlow()
-
-override fun onCreate() {
-    super.onCreate()
-
-    instance = this
-
-    createNotificationChannel()
-
-    startForeground(
-        NOTIFICATION_ID,
-        createNotification(
-            "YG Sync Controller activo"
+        createNotificationChannel()
+        startForeground(
+            NOTIFICATION_ID,
+            createNotification("YG Sync Controller activo")
         )
-    )
 
-    updateDiagnostic(
-        "YG SYNC — CONTROLADOR ACTIVO"
-    )
+        updateDiagnostic("YG SYNC — CONTROLADOR ACTIVO")
 
-    startDiscovery()
-    startAutoplayMirror()
-}
-
-override fun onStartCommand(
-    intent: Intent?,
-    flags: Int,
-    startId: Int
-): Int {
-
-    when (intent?.action) {
-
-        ACTION_START,
-        null -> {
-            updateDiagnostic(
-                "YG SYNC — SERVICIO LISTO"
-            )
-        }
+        startDiscovery()
+        startAutoplayMirror()
     }
 
-    return START_STICKY
-}
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int
+    ): Int {
 
-override fun onBind(
-    intent: Intent?
-): IBinder? {
-    return null
-}
-
-override fun onDestroy() {
-
-    discoveryJob?.cancel()
-    mirrorJob?.cancel()
-
-    connections.values.forEach {
-        try {
-            it.disconnect()
-        } catch (_: Exception) {
+        when (intent?.action) {
+            ACTION_START,
+            null -> {
+                updateDiagnostic("YG SYNC — SERVICIO LISTO")
+            }
         }
+
+        return START_STICKY
     }
 
-    connections.clear()
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
 
-    serviceJob.cancel()
+    override fun onDestroy() {
+        discoveryJob?.cancel()
+        mirrorJob?.cancel()
 
-    instance = null
+        connections.values.forEach {
+            try {
+                it.disconnect()
+            } catch (_: Exception) {
+            }
+        }
 
-    super.onDestroy()
-}
+        connections.clear()
 
-fun startDiscovery() {
+        serviceJob.cancel()
 
-    discoveryJob?.cancel()
+        instance = null
 
-    discoveryJob =
-        serviceScope.launch(
-            Dispatchers.IO
-        ) {
+        super.onDestroy()
+    }
+
+    /**
+     * Lanza una búsqueda UDP de pantallas y registra
+     * automáticamente cada una que responda.
+     *
+     * Antes esta función no existía y el botón "Buscar"
+     * de la interfaz no hacía ningún descubrimiento real.
+     */
+    fun startDiscovery() {
+
+        discoveryJob?.cancel()
+
+        discoveryJob = serviceScope.launch(Dispatchers.IO) {
 
             updateDiagnostic(
                 "YG SYNC — BUSCANDO PANTALLAS"
@@ -194,16 +159,11 @@ fun startDiscovery() {
 
             try {
 
-                discovery
-                    .discoverReceivers()
+                discovery.discoverReceivers()
                     .collect { receiver ->
 
-                        withContext(
-                            Dispatchers.Main.immediate
-                        ) {
-                            registerReceiver(
-                                receiver
-                            )
+                        withContext(Dispatchers.Main.immediate) {
+                            registerReceiver(receiver)
                         }
                     }
 
@@ -218,16 +178,25 @@ fun startDiscovery() {
                 "YG SYNC — BÚSQUEDA FINALIZADA (${_receiverList.value.size})"
             )
         }
-}
+    }
 
-fun startAutoplayMirror() {
+    /**
+     * Modo "bar": si nadie manda un video desde la app, cada
+     * SmartTube sigue solo con su propio autoplay/relacionados
+     * y las pantallas terminan mostrando cosas distintas.
+     *
+     * Esta función usa la primera pantalla conectada como
+     * "referencia": cada 2 segundos le pregunta qué video está
+     * sonando (GET_STATUS). Si cambió sola (autoplay), replica
+     * ese mismo video al resto de las pantallas conectadas,
+     * sin esperar confirmación de nadie (para no cortar el
+     * audio de las que ya están sonando bien).
+     */
+    fun startAutoplayMirror() {
 
-    mirrorJob?.cancel()
+        mirrorJob?.cancel()
 
-    mirrorJob =
-        serviceScope.launch(
-            Dispatchers.IO
-        ) {
+        mirrorJob = serviceScope.launch(Dispatchers.IO) {
 
             while (isActive) {
 
@@ -235,16 +204,13 @@ fun startAutoplayMirror() {
 
                     val reference =
                         _receiverList.value
-                            .firstOrNull {
-                                it.connected
-                            }
+                            .firstOrNull { it.connected }
 
                     if (reference != null) {
 
                         val status =
-                            connections[
-                                reference.id
-                            ]?.getStatus()
+                            connections[reference.id]
+                                ?.getStatus()
 
                         val payload =
                             status?.optJSONObject(
@@ -259,14 +225,34 @@ fun startAutoplayMirror() {
                                 )
                                 ?.trim()
 
+                        val positionMs =
+                            payload
+                                ?.optLong(
+                                    "positionMs",
+                                    0L
+                                )
+                                ?: 0L
+
+                        val isPlaying =
+                            payload
+                                ?.optBoolean(
+                                    "isPlaying",
+                                    false
+                                )
+                                ?: false
+
+                        updatePlaybackStatus(
+                            receiverId = reference.id,
+                            positionMs = positionMs,
+                            isPlaying = isPlaying
+                        )
+
                         if (
                             !videoId.isNullOrEmpty() &&
-                            videoId !=
-                            lastKnownVideoId
+                            videoId != lastKnownVideoId
                         ) {
 
-                            lastKnownVideoId =
-                                videoId
+                            lastKnownVideoId = videoId
 
                             updateDiagnostic(
                                 "YG SYNC — AUTOPLAY DETECTADO EN " +
@@ -274,103 +260,102 @@ fun startAutoplayMirror() {
                             )
 
                             mirrorToOtherScreens(
-                                referenceId =
-                                    reference.id,
-                                videoId =
-                                    videoId
+                                referenceId = reference.id,
+                                videoId = videoId
                             )
                         }
                     }
 
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+
+                    /*
+                     * Un fallo puntual (por ejemplo, un timeout
+                     * de GET_STATUS) no debe frenar el mirror.
+                     * Simplemente lo reintentamos en el
+                     * siguiente ciclo.
+                     */
                 }
 
                 delay(2000)
             }
         }
-}
-
-private fun mirrorToOtherScreens(
-    referenceId: String,
-    videoId: String
-) {
-
-    val others =
-        _receiverList.value.filter {
-            it.id != referenceId &&
-                it.connected
-        }
-
-    others.forEach { receiver ->
-
-        serviceScope.launch(
-            Dispatchers.IO
-        ) {
-
-            try {
-
-                connections[
-                    receiver.id
-                ]?.sendAndWait(
-                    "LOAD_VIDEO|$videoId"
-                )
-
-            } catch (_: Exception) {
-            }
-        }
-    }
-}
-
-fun registerReceiver(
-    receiver: Receiver
-) {
-
-    val existing =
-        _receiverList.value
-            .firstOrNull {
-                it.id == receiver.id
-            }
-
-    if (existing == null) {
-
-        _receiverList.value =
-            _receiverList.value +
-                receiver
-
-    } else {
-
-        val merged =
-            existing.copy(
-                name = receiver.name,
-                address = receiver.address,
-                port = receiver.port
-            )
-
-        _receiverList.value =
-            _receiverList.value.map {
-
-                if (
-                    it.id == receiver.id
-                ) {
-                    merged
-                } else {
-                    it
-                }
-            }
     }
 
-    if (
-        !connections.containsKey(
-            receiver.id
-        )
+    /**
+     * Envía el mismo video a todas las pantallas conectadas
+     * excepto a la de referencia, sin bloquear esperando
+     * confirmación de cada una (para no dejar en silencio a
+     * las que ya están bien).
+     */
+    private fun mirrorToOtherScreens(
+        referenceId: String,
+        videoId: String
     ) {
 
-        val connection =
-            ReceiverConnection(
+        val others =
+            _receiverList.value.filter {
+                it.id != referenceId && it.connected
+            }
+
+        others.forEach { receiver ->
+
+            serviceScope.launch(Dispatchers.IO) {
+
+                try {
+
+                    connections[receiver.id]
+                        ?.sendAndWait(
+                            "LOAD_VIDEO|$videoId"
+                        )
+
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    /**
+     * Registra una pantalla y crea su conexión persistente.
+     */
+    fun registerReceiver(receiver: Receiver) {
+
+        val existing = _receiverList.value
+            .firstOrNull { it.id == receiver.id }
+
+        if (existing == null) {
+            _receiverList.value =
+                _receiverList.value + receiver
+        } else {
+
+            /*
+             * IMPORTANTE:
+             *
+             * Un redescubrimiento (por ejemplo, tocar "Buscar"
+             * de nuevo) no debe pisar el estado real de la
+             * conexión ni la latencia. Antes esto reemplazaba
+             * la pantalla entera por una versión "fresca" con
+             * connected=false, aunque la conexión siguiera viva,
+             * y por eso la UI mostraba "Desconectada" aunque el
+             * video se reprodujera bien.
+             */
+            val merged =
+                existing.copy(
+                    name = receiver.name,
+                    address = receiver.address,
+                    port = receiver.port
+                )
+
+            _receiverList.value =
+                _receiverList.value.map {
+                    if (it.id == receiver.id) merged else it
+                }
+        }
+
+        if (!connections.containsKey(receiver.id)) {
+
+            val connection = ReceiverConnection(
                 receiver = receiver,
-
                 onConnected = {
-
                     updateConnectionState(
                         receiver.id,
                         true
@@ -380,9 +365,7 @@ fun registerReceiver(
                         "YG SYNC — CONECTADO: ${receiver.name}"
                     )
                 },
-
                 onDisconnected = {
-
                     updateConnectionState(
                         receiver.id,
                         false
@@ -392,155 +375,223 @@ fun registerReceiver(
                         "YG SYNC — DESCONECTADO: ${receiver.name}"
                     )
                 },
-
                 onLatency = { latency ->
-
                     updateLatency(
                         receiver.id,
                         latency
                     )
                 },
-
                 onDiagnostic = { message ->
-
-                    updateDiagnostic(
-                        message
-                    )
+                    updateDiagnostic(message)
                 }
             )
 
-        connections[
-            receiver.id
-        ] = connection
+            connections[receiver.id] = connection
 
-        connectReceiver(
-            receiver.id
-        )
+            connectReceiver(receiver.id)
+        }
     }
-}
 
-private fun connectReceiver(
-    receiverId: String
-) {
+    /**
+     * Conecta una pantalla sin bloquear la interfaz.
+     */
+    private fun connectReceiver(receiverId: String) {
 
-    serviceScope.launch(
-        Dispatchers.IO
-    ) {
+        serviceScope.launch(Dispatchers.IO) {
+
+            val connection = connections[receiverId]
+                ?: return@launch
+
+            try {
+
+                updateDiagnostic(
+                    "YG SYNC — CONECTANDO: $receiverId"
+                )
+
+                connection.connect()
+
+            } catch (e: Exception) {
+
+                updateConnectionState(
+                    receiverId,
+                    false
+                )
+
+                updateDiagnostic(
+                    "YG SYNC — ERROR DE CONEXIÓN: ${e.message ?: "desconocido"}"
+                )
+            }
+        }
+    }
+
+    /**
+     * Envía un comando a una pantalla.
+     */
+    fun sendCommand(
+        receiverId: String,
+        command: String
+    ): Boolean {
 
         val connection =
-            connections[
-                receiverId
-            ] ?: return@launch
+            connections[receiverId]
+                ?: return false
 
-        try {
+        return try {
 
-            updateDiagnostic(
-                "YG SYNC — CONECTANDO: $receiverId"
-            )
+            connection.send(command)
 
-            connection.connect()
+            true
 
         } catch (e: Exception) {
 
-            updateConnectionState(
-                receiverId,
-                false
+            updateDiagnostic(
+                "YG SYNC — ERROR ENVIANDO A $receiverId: ${e.message}"
+            )
+
+            false
+        }
+    }
+
+    /**
+     * Envía un comando a todas las pantallas conectadas.
+     */
+    fun sendCommandAsync(
+        command: String,
+        callback: (Boolean, Int) -> Unit
+    ) {
+
+        serviceScope.launch {
+
+            val receivers =
+                _receiverList.value.toList()
+
+            if (receivers.isEmpty()) {
+
+                callback(false, 0)
+
+                updateDiagnostic(
+                    "YG SYNC — NO HAY PANTALLAS"
+                )
+
+                return@launch
+            }
+
+            val results =
+                withContext(Dispatchers.IO) {
+
+                    receivers.map { receiver ->
+
+                        async {
+
+                            val connection =
+                                connections[receiver.id]
+
+                            if (
+                                connection == null ||
+                                !connection.isConnected()
+                            ) {
+                                false
+                            } else {
+                                try {
+                                    connection.send(command)
+                                    true
+                                } catch (_: Exception) {
+                                    false
+                                }
+                            }
+                        }
+
+                    }.awaitAll()
+                }
+
+            val successful =
+                results.count { it }
+
+            callback(
+                successful == receivers.size,
+                successful
             )
 
             updateDiagnostic(
-                "YG SYNC — ERROR DE CONEXIÓN: ${e.message ?: "desconocido"}"
+                "YG SYNC — COMANDO ENVIADO: $successful/${receivers.size}"
             )
         }
     }
-}
 
-fun sendCommand(
-    receiverId: String,
-    command: String
-): Boolean {
+    /**
+     * LOAD VIDEO:
+     *
+     * Envía OPEN a todas las pantallas al mismo tiempo
+     * y espera a que cada receptor confirme READY.
+     */
+    suspend fun loadVideoAndWaitReady(
+        videoId: String
+    ): Boolean {
 
-    val connection =
-        connections[
-            receiverId
-        ] ?: return false
+        val cleanVideoId =
+            videoId.trim()
 
-    return try {
+        if (cleanVideoId.isEmpty()) {
 
-        connection.send(
-            command
-        )
+            updateDiagnostic(
+                "YG SYNC — VIDEO ID VACÍO"
+            )
 
-        true
+            return false
+        }
 
-    } catch (e: Exception) {
-
-        updateDiagnostic(
-            "YG SYNC — ERROR ENVIANDO A $receiverId: ${e.message}"
-        )
-
-        false
-    }
-}
-
-fun sendCommandAsync(
-    command: String,
-    callback: (
-        Boolean,
-        Int
-    ) -> Unit
-) {
-
-    serviceScope.launch {
+        /*
+         * Este video fue elegido por vos desde la app, no por
+         * el autoplay. Lo marcamos como "conocido" para que el
+         * mirror de autoplay no lo vuelva a reenviar de nuevo
+         * cuando lo detecte en la pantalla de referencia.
+         */
+        lastKnownVideoId = cleanVideoId
 
         val receivers =
             _receiverList.value.toList()
 
         if (receivers.isEmpty()) {
 
-            callback(
-                false,
-                0
-            )
-
             updateDiagnostic(
-                "YG SYNC — NO HAY PANTALLAS"
+                "YG SYNC — NO HAY PANTALLAS CONECTADAS"
             )
 
-            return@launch
+            return false
         }
 
+        updateDiagnostic(
+            "YG SYNC — CARGANDO VIDEO: $cleanVideoId"
+        )
+
         val results =
-            withContext(
-                Dispatchers.IO
-            ) {
+            withContext(Dispatchers.IO) {
 
                 receivers.map { receiver ->
 
                     async {
 
                         val connection =
-                            connections[
-                                receiver.id
-                            ]
+                            connections[receiver.id]
 
                         if (
                             connection == null ||
                             !connection.isConnected()
                         ) {
-
                             false
-
                         } else {
-
                             try {
 
-                                connection.send(
-                                    command
+                                connection
+                                    .loadVideoAndWaitReady(
+                                        cleanVideoId
+                                    )
+
+                            } catch (e: Exception) {
+
+                                updateDiagnostic(
+                                    "YG SYNC — ERROR ${receiver.name}: ${e.message}"
                                 )
-
-                                true
-
-                            } catch (_: Exception) {
 
                                 false
                             }
@@ -550,425 +601,258 @@ fun sendCommandAsync(
                 }.awaitAll()
             }
 
-        val successful =
-            results.count {
-                it
-            }
+        val readyCount =
+            results.count { it }
 
-        callback(
-            successful ==
-                receivers.size,
-            successful
-        )
+        val allReady =
+            readyCount == receivers.size
 
-        updateDiagnostic(
-            "YG SYNC — COMANDO ENVIADO: $successful/${receivers.size}"
-        )
+        if (allReady) {
+
+            updateDiagnostic(
+                "YG SYNC — READY: $readyCount/${receivers.size}"
+            )
+
+        } else {
+
+            updateDiagnostic(
+                "YG SYNC — READY INCOMPLETO: $readyCount/${receivers.size}"
+            )
+        }
+
+        return allReady
     }
-}
 
-suspend fun loadVideoAndWaitReady(
-    videoId: String
-): Boolean {
+    /**
+     * Envía PLAY simultáneamente.
+     */
+    fun playAll() {
 
-    val cleanVideoId =
-        videoId.trim()
+        sendCommandAsync(
+            command = "PLAY"
+        ) { _, total ->
 
-    if (
-        cleanVideoId.isEmpty()
+            updateDiagnostic(
+                "YG SYNC — PLAY ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Envía PAUSE simultáneamente.
+     */
+    fun pauseAll() {
+
+        sendCommandAsync(
+            command = "PAUSE"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — PAUSE ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Envía STOP simultáneamente.
+     */
+    fun stopAll() {
+
+        sendCommandAsync(
+            command = "STOP"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — STOP ENVIADO A $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Solicita estado a todas las pantallas.
+     */
+    fun getStatusAll() {
+
+        sendCommandAsync(
+            command = "GET_STATUS"
+        ) { _, total ->
+
+            updateDiagnostic(
+                "YG SYNC — STATUS SOLICITADO: $total PANTALLAS"
+            )
+        }
+    }
+
+    /**
+     * Desconecta una pantalla.
+     */
+    fun disconnectReceiver(
+        receiverId: String
     ) {
 
-        updateDiagnostic(
-            "YG SYNC — VIDEO ID VACÍO"
-        )
+        try {
+            connections[receiverId]?.disconnect()
+        } catch (_: Exception) {
+        }
 
-        return false
+        connections.remove(receiverId)
+
+        _receiverList.value =
+            _receiverList.value.filter {
+                it.id != receiverId
+            }
+
+        _connectionStates.value =
+            _connectionStates.value - receiverId
+
+        _latencies.value =
+            _latencies.value - receiverId
+
+        updateDiagnostic(
+            "YG SYNC — PANTALLA ELIMINADA: $receiverId"
+        )
     }
 
-    lastKnownVideoId =
-        cleanVideoId
-
-    val receivers =
-        _receiverList.value.toList()
-
-    if (receivers.isEmpty()) {
-
-        updateDiagnostic(
-            "YG SYNC — NO HAY PANTALLAS CONECTADAS"
-        )
-
-        return false
+    /**
+     * Devuelve una conexión concreta.
+     */
+    fun getConnection(
+        receiverId: String
+    ): ReceiverConnection? {
+        return connections[receiverId]
     }
 
-    updateDiagnostic(
-        "YG SYNC — CARGANDO VIDEO: $cleanVideoId"
-    )
+    /**
+     * Comprueba si una pantalla está conectada.
+     */
+    fun isConnected(
+        receiverId: String
+    ): Boolean {
 
-    val results =
-        withContext(
-            Dispatchers.IO
-        ) {
+        return connections[receiverId]
+            ?.isConnected()
+            ?: false
+    }
 
-            receivers.map { receiver ->
+    private fun updateConnectionState(
+        receiverId: String,
+        connected: Boolean
+    ) {
 
-                async {
+        _connectionStates.value =
+            _connectionStates.value.toMutableMap().apply {
+                this[receiverId] = connected
+            }
 
-                    val connection =
-                        connections[
-                            receiver.id
-                        ]
+        _receiverList.value =
+            _receiverList.value.map {
 
-                    if (
-                        connection == null ||
-                        !connection.isConnected()
-                    ) {
+                if (it.id == receiverId) {
+                    it.copy(
+                        connected = connected
+                    )
+                } else {
+                    it
+                }
+            }
+    }
 
-                        false
+    private fun updateLatency(
+        receiverId: String,
+        latency: Long
+    ) {
 
-                    } else {
+        _latencies.value =
+            _latencies.value.toMutableMap().apply {
+                this[receiverId] = latency
+            }
 
-                        try {
+        _receiverList.value =
+            _receiverList.value.map {
 
-                            connection
-                                .loadVideoAndWaitReady(
-                                    cleanVideoId
-                                )
+                if (it.id == receiverId) {
+                    it.copy(
+                        latency = latency
+                    )
+                } else {
+                    it
+                }
+            }
+    }
 
-                        } catch (e: Exception) {
+    private fun updatePlaybackStatus(
+        receiverId: String,
+        positionMs: Long,
+        isPlaying: Boolean
+    ) {
 
-                            updateDiagnostic(
-                                "YG SYNC — ERROR ${receiver.name}: ${e.message}"
-                            )
+        _receiverList.value =
+            _receiverList.value.map {
 
-                            false
-                        }
-                    }
+                if (it.id == receiverId) {
+                    it.copy(
+                        playbackPosition = positionMs,
+                        isPlaying = isPlaying
+                    )
+                } else {
+                    it
+                }
+            }
+    }
+
+    private fun updateDiagnostic(
+        message: String
+    ) {
+
+        _diagnostic.value = message
+    }
+
+    private fun createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
+            val manager =
+                getSystemService(
+                    Context.NOTIFICATION_SERVICE
+                ) as NotificationManager
+
+            val channel =
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "YG Sync Controller",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+
+                    description =
+                        "Conexión permanente con las pantallas YG Sync"
+
+                    setShowBadge(false)
                 }
 
-            }.awaitAll()
+            manager.createNotificationChannel(channel)
         }
-
-    val readyCount =
-        results.count {
-            it
-        }
-
-    val allReady =
-        readyCount ==
-            receivers.size
-
-    if (allReady) {
-
-        updateDiagnostic(
-            "YG SYNC — READY: $readyCount/${receivers.size}"
-        )
-
-    } else {
-
-        updateDiagnostic(
-            "YG SYNC — READY INCOMPLETO: $readyCount/${receivers.size}"
-        )
     }
 
-    return allReady
-}
+    private fun createNotification(
+        text: String
+    ): Notification {
 
-/*
- * =========================================================
- * CONTROLES DE REPRODUCCIÓN
- * =========================================================
- */
-
-fun playAll() {
-
-    sendCommandAsync(
-        "PLAY"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — PLAY ENVIADO A $total PANTALLAS"
-        )
+        return NotificationCompat
+            .Builder(
+                this,
+                CHANNEL_ID
+            )
+            .setContentTitle(
+                "YG Sync Controller"
+            )
+            .setContentText(text)
+            .setSmallIcon(
+                R.drawable.yg_sync_control
+            )
+            .setOngoing(true)
+            .setCategory(
+                NotificationCompat.CATEGORY_SERVICE
+            )
+            .build()
     }
-}
-
-fun pauseAll() {
-
-    sendCommandAsync(
-        "PAUSE"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — PAUSE ENVIADO A $total PANTALLAS"
-        )
-    }
-}
-
-fun stopAll() {
-
-    sendCommandAsync(
-        "STOP"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — STOP ENVIADO A $total PANTALLAS"
-        )
-    }
-}
-
-fun nextAll() {
-
-    sendCommandAsync(
-        "NEXT"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — NEXT ENVIADO A $total PANTALLAS"
-        )
-    }
-}
-
-fun previousAll() {
-
-    sendCommandAsync(
-        "PREVIOUS"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — PREVIOUS ENVIADO A $total PANTALLAS"
-        )
-    }
-}
-
-fun seekAll(
-    positionMs: Long
-) {
-
-    val safePosition =
-        maxOf(
-            0L,
-            positionMs
-        )
-
-    sendCommandAsync(
-        "SEEK|$safePosition"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — SEEK $safePosition ms ENVIADO A $total PANTALLAS"
-        )
-    }
-}
-
-fun setVolumeAll(
-    volume: Float
-) {
-
-    val safeVolume =
-        volume.coerceIn(
-            0f,
-            1f
-        )
-
-    sendCommandAsync(
-        "SET_VOLUME|$safeVolume"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — VOLUMEN $safeVolume ENVIADO A $total PANTALLAS"
-        )
-    }
-}
-
-fun getStatusAll() {
-
-    sendCommandAsync(
-        "GET_STATUS"
-    ) { _, total ->
-
-        updateDiagnostic(
-            "YG SYNC — STATUS SOLICITADO: $total PANTALLAS"
-        )
-    }
-}
-
-fun disconnectReceiver(
-    receiverId: String
-) {
-
-    try {
-        connections[
-            receiverId
-        ]?.disconnect()
-    } catch (_: Exception) {
-    }
-
-    connections.remove(
-        receiverId
-    )
-
-    _receiverList.value =
-        _receiverList.value.filter {
-            it.id != receiverId
-        }
-
-    _connectionStates.value =
-        _connectionStates.value -
-            receiverId
-
-    _latencies.value =
-        _latencies.value -
-            receiverId
-
-    updateDiagnostic(
-        "YG SYNC — PANTALLA ELIMINADA: $receiverId"
-    )
-}
-
-fun getConnection(
-    receiverId: String
-): ReceiverConnection? {
-    return connections[
-        receiverId
-    ]
-}
-
-fun isConnected(
-    receiverId: String
-): Boolean {
-
-    return connections[
-        receiverId
-    ]?.isConnected()
-        ?: false
-}
-
-private fun updateConnectionState(
-    receiverId: String,
-    connected: Boolean
-) {
-
-    _connectionStates.value =
-        _connectionStates.value
-            .toMutableMap()
-            .apply {
-                this[receiverId] =
-                    connected
-            }
-
-    _receiverList.value =
-        _receiverList.value.map {
-
-            if (
-                it.id == receiverId
-            ) {
-
-                it.copy(
-                    connected =
-                        connected
-                )
-
-            } else {
-
-                it
-            }
-        }
-}
-
-private fun updateLatency(
-    receiverId: String,
-    latency: Long
-) {
-
-    _latencies.value =
-        _latencies.value
-            .toMutableMap()
-            .apply {
-                this[receiverId] =
-                    latency
-            }
-
-    _receiverList.value =
-        _receiverList.value.map {
-
-            if (
-                it.id == receiverId
-            ) {
-
-                it.copy(
-                    latency =
-                        latency
-                )
-
-            } else {
-
-                it
-            }
-        }
-}
-
-private fun updateDiagnostic(
-    message: String
-) {
-
-    _diagnostic.value =
-        message
-}
-
-private fun createNotificationChannel() {
-
-    if (
-        Build.VERSION.SDK_INT >=
-        Build.VERSION_CODES.O
-    ) {
-
-        val manager =
-            getSystemService(
-                Context.NOTIFICATION_SERVICE
-            ) as NotificationManager
-
-        val channel =
-            NotificationChannel(
-                CHANNEL_ID,
-                "YG Sync Controller",
-                NotificationManager
-                    .IMPORTANCE_LOW
-            ).apply {
-
-                description =
-                    "Conexión permanente con las pantallas YG Sync"
-
-                setShowBadge(false)
-            }
-
-        manager.createNotificationChannel(
-            channel
-        )
-    }
-}
-
-private fun createNotification(
-    text: String
-): Notification {
-
-    return NotificationCompat
-        .Builder(
-            this,
-            CHANNEL_ID
-        )
-        .setContentTitle(
-            "YG Sync Controller"
-        )
-        .setContentText(
-            text
-        )
-        .setSmallIcon(
-            R.drawable.yg_sync_control
-        )
-        .setOngoing(true)
-        .setCategory(
-            NotificationCompat.CATEGORY_SERVICE
-        )
-        .build()
-}
-
 }
