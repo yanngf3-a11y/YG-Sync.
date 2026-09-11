@@ -2,6 +2,8 @@ package com.ygsync.controller.youtube
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,7 +15,8 @@ data class YgYouTubeUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val hasSearched: Boolean = false,
-    val suggestions: List<YgYouTubeResult> = emptyList()
+    val suggestions: List<YgYouTubeResult> = emptyList(),
+    val querySuggestions: List<String> = emptyList()
 )
 
 class YgYouTubeViewModel(
@@ -38,6 +41,8 @@ class YgYouTubeViewModel(
         "salsa clasica",
         "rock en español"
     )
+
+    private var querySuggestJob: Job? = null
 
     init {
         loadSuggestions()
@@ -70,11 +75,57 @@ class YgYouTubeViewModel(
     }
 
     fun setQuery(value: String) {
+
         _uiState.value =
             _uiState.value.copy(
                 query = value,
                 error = null
             )
+
+        querySuggestJob?.cancel()
+
+        val cleanValue = value.trim()
+
+        if (cleanValue.length < 2) {
+
+            _uiState.value =
+                _uiState.value.copy(
+                    querySuggestions = emptyList()
+                )
+
+            return
+        }
+
+        /*
+         * Esperamos un poquito antes de pedir sugerencias,
+         * así no disparamos una petición por cada letra que
+         * se escribe.
+         */
+        querySuggestJob = viewModelScope.launch {
+
+            delay(250)
+
+            val suggestions =
+                repository.suggestQueries(cleanValue)
+
+            _uiState.value =
+                _uiState.value.copy(
+                    querySuggestions = suggestions
+                )
+        }
+    }
+
+    fun selectSuggestion(suggestion: String) {
+
+        querySuggestJob?.cancel()
+
+        _uiState.value =
+            _uiState.value.copy(
+                query = suggestion,
+                querySuggestions = emptyList()
+            )
+
+        search()
     }
 
     fun search() {
@@ -86,13 +137,16 @@ class YgYouTubeViewModel(
             return
         }
 
+        querySuggestJob?.cancel()
+
         viewModelScope.launch {
 
             _uiState.value =
                 _uiState.value.copy(
                     isLoading = true,
                     error = null,
-                    hasSearched = true
+                    hasSearched = true,
+                    querySuggestions = emptyList()
                 )
 
             repository
@@ -121,6 +175,8 @@ class YgYouTubeViewModel(
     }
 
     fun clearSearch() {
+
+        querySuggestJob?.cancel()
 
         _uiState.value =
             YgYouTubeUiState(
