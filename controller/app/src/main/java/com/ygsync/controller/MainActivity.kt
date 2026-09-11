@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Home
@@ -41,7 +42,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.VolumeUp
@@ -98,6 +98,7 @@ private val YgLightBlue = Color(0xFF42A5F5)
 private val YgBackground = Color(0xFFF6F8FC)
 private val YgText = Color(0xFF172033)
 private val YgMuted = Color(0xFF718096)
+private val YgSaveRed = Color(0xFFE53935)
 
 class MainActivity : ComponentActivity() {
 
@@ -170,6 +171,14 @@ private fun YgSyncApp(context: Context) {
         mutableFloatStateOf(1f)
     }
 
+    var isPlaying by remember {
+        mutableStateOf(false)
+    }
+
+    val savedVideos = remember {
+        mutableStateListOf<YgYouTubeResult>()
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             val service =
@@ -204,14 +213,67 @@ private fun YgSyncApp(context: Context) {
                         uiState = uiState,
                         selectedVideo = selectedVideo,
                         volume = volume,
+                        isPlaying = isPlaying,
+                        savedVideos = savedVideos,
                         onVolumeChange = {
                             volume = it
+                        },
+                        onPlayPause = {
+                            val service =
+                                ControllerSyncService.getInstance()
+
+                            if (service != null) {
+                                if (isPlaying) {
+                                    service.pauseAll()
+                                } else {
+                                    service.playAll()
+                                }
+
+                                isPlaying = !isPlaying
+                            }
+                        },
+                        onPrevious = {
+                            ControllerSyncService
+                                .getInstance()
+                                ?.previousAll()
+                        },
+                        onNext = {
+                            ControllerSyncService
+                                .getInstance()
+                                ?.nextAll()
+                        },
+                        onSave = { video ->
+                            if (
+                                savedVideos.none {
+                                    it.videoId == video.videoId
+                                }
+                            ) {
+                                savedVideos.add(video)
+
+                                Toast.makeText(
+                                    context,
+                                    "Añadido a Biblioteca",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                savedVideos.removeAll {
+                                    it.videoId == video.videoId
+                                }
+
+                                Toast.makeText(
+                                    context,
+                                    "Eliminado de Biblioteca",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         },
                         onQueryChange = viewModel::setQuery,
                         onSearch = viewModel::search,
                         onClear = viewModel::clearSearch,
                         onVideoClick = { video ->
                             selectedVideo = video
+                            isPlaying = true
+
                             sendVideoToReceivers(
                                 context,
                                 video
@@ -226,6 +288,8 @@ private fun YgSyncApp(context: Context) {
                         onClear = viewModel::clearSearch,
                         onVideoClick = { video ->
                             selectedVideo = video
+                            isPlaying = true
+
                             sendVideoToReceivers(
                                 context,
                                 video
@@ -234,7 +298,16 @@ private fun YgSyncApp(context: Context) {
                     )
 
                     2 -> LibraryScreen(
-                        selectedVideo
+                        savedVideos = savedVideos,
+                        onVideoClick = { video ->
+                            selectedVideo = video
+                            isPlaying = true
+
+                            sendVideoToReceivers(
+                                context,
+                                video
+                            )
+                        }
                     )
 
                     3 -> DevicesScreen(
@@ -286,15 +359,25 @@ private fun HomeScreen(
     uiState: YgYouTubeUiState,
     selectedVideo: YgYouTubeResult?,
     volume: Float,
+    isPlaying: Boolean,
+    savedVideos: List<YgYouTubeResult>,
     onVolumeChange: (Float) -> Unit,
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSave: (YgYouTubeResult) -> Unit,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
     onVideoClick: (YgYouTubeResult) -> Unit
 ) {
+    val featuredVideo =
+        selectedVideo ?: uiState.results.firstOrNull()
+
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
+
         Header()
 
         SearchBar(
@@ -302,12 +385,6 @@ private fun HomeScreen(
             onQueryChange = onQueryChange,
             onSearch = onSearch,
             onClear = onClear
-        )
-
-        PlaybackControlPanel(
-            selectedVideo = selectedVideo,
-            volume = volume,
-            onVolumeChange = onVolumeChange
         )
 
         if (uiState.isLoading) {
@@ -318,27 +395,302 @@ private fun HomeScreen(
 
             ErrorView(uiState.error)
 
-        } else if (uiState.results.isNotEmpty()) {
-
-            Text(
-                text = "Resultados",
-                modifier = Modifier.padding(
-                    horizontal = 18.dp,
-                    vertical = 10.dp
-                ),
-                fontWeight = FontWeight.Bold,
-                color = YgText
-            )
-
-            VideoList(
-                results = uiState.results,
-                onVideoClick = onVideoClick
-            )
-
         } else {
 
-            WelcomeView()
+            if (featuredVideo != null) {
+
+                FeaturedVideoPlayer(
+                    video = featuredVideo,
+                    volume = volume,
+                    isPlaying = isPlaying,
+                    isSaved = savedVideos.any {
+                        it.videoId == featuredVideo.videoId
+                    },
+                    onVolumeChange = onVolumeChange,
+                    onPlayPause = onPlayPause,
+                    onPrevious = onPrevious,
+                    onNext = onNext,
+                    onSave = {
+                        onSave(featuredVideo)
+                    }
+                )
+
+                Spacer(
+                    modifier = Modifier.height(10.dp)
+                )
+
+                Text(
+                    text = "Más videos",
+                    modifier = Modifier.padding(
+                        horizontal = 16.dp,
+                        vertical = 4.dp
+                    ),
+                    color = YgText,
+                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                VideoList(
+                    results = uiState.results,
+                    onVideoClick = onVideoClick,
+                    featuredVideoId = featuredVideo.videoId
+                )
+
+            } else {
+
+                WelcomeView()
+            }
         }
+    }
+}
+
+@Composable
+private fun FeaturedVideoPlayer(
+    video: YgYouTubeResult,
+    volume: Float,
+    isPlaying: Boolean,
+    isSaved: Boolean,
+    onVolumeChange: (Float) -> Unit,
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSave: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.Black
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 4.dp
+        )
+    ) {
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(245.dp)
+                .clip(RoundedCornerShape(18.dp))
+        ) {
+
+            AsyncImage(
+                model = video.thumbnailUrl,
+                contentDescription = video.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.78f),
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.82f)
+                            )
+                        )
+                    )
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopStart)
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 13.dp
+                    )
+            ) {
+
+                Text(
+                    text = video.title,
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Spacer(
+                    modifier = Modifier.height(2.dp)
+                )
+
+                Text(
+                    text = video.channelName,
+                    color = Color.White.copy(alpha = 0.88f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                Spacer(
+                    modifier = Modifier.height(4.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+
+                    Icon(
+                        imageVector =
+                            if (volume <= 0.01f) {
+                                Icons.Default.VolumeDown
+                            } else {
+                                Icons.Default.VolumeUp
+                            },
+                        contentDescription = "Volumen",
+                        tint = Color.White,
+                        modifier = Modifier.size(19.dp)
+                    )
+
+                    Slider(
+                        value = volume,
+                        onValueChange = onVolumeChange,
+                        onValueChangeFinished = {
+                            ControllerSyncService
+                                .getInstance()
+                                ?.setVolumeAll(volume)
+                        },
+                        valueRange = 0f..1f,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(
+                                horizontal = 6.dp
+                            )
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(top = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+
+                FeaturedControlButton(
+                    icon = Icons.Default.SkipPrevious,
+                    contentDescription = "Anterior",
+                    onClick = onPrevious
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(58.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Color.White.copy(alpha = 0.96f)
+                        )
+                        .clickable {
+                            onPlayPause()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector =
+                            if (isPlaying) {
+                                Icons.Default.Pause
+                            } else {
+                                Icons.Default.PlayArrow
+                            },
+                        contentDescription =
+                            if (isPlaying) {
+                                "Pausa"
+                            } else {
+                                "Play"
+                            },
+                        tint = YgBlue,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+
+                FeaturedControlButton(
+                    icon = Icons.Default.SkipNext,
+                    contentDescription = "Siguiente",
+                    onClick = onNext
+                )
+            }
+
+            IconButton(
+                onClick = onSave,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(10.dp)
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Color.White.copy(alpha = 0.94f)
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bookmark,
+                    contentDescription = "Guardar",
+                    tint =
+                        if (isSaved) {
+                            YgSaveRed
+                        } else {
+                            YgText
+                        },
+                    modifier = Modifier.size(25.dp)
+                )
+            }
+
+            if (video.duration.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp),
+                    shape = RoundedCornerShape(5.dp),
+                    color = Color.Black.copy(alpha = 0.72f)
+                ) {
+                    Text(
+                        text = video.duration,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(
+                            horizontal = 6.dp,
+                            vertical = 3.dp
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturedControlButton(
+    icon:
+        androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(
+                Color.Black.copy(alpha = 0.48f)
+            )
+            .clickable {
+                onClick()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(28.dp)
+        )
     }
 }
 
@@ -353,6 +705,7 @@ private fun SearchScreen(
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
+
         Header(title = "Buscar")
 
         SearchBar(
@@ -380,303 +733,12 @@ private fun SearchScreen(
         } else {
 
             Text(
-                text = "Busca canciones, artistas, videos o géneros.",
+                text =
+                    "Busca canciones, artistas, videos o géneros.",
                 color = YgMuted,
                 modifier = Modifier.padding(24.dp)
             )
         }
-    }
-}
-
-@Composable
-private fun PlaybackControlPanel(
-    selectedVideo: YgYouTubeResult?,
-    volume: Float,
-    onVolumeChange: (Float) -> Unit
-) {
-    val service =
-        ControllerSyncService.getInstance()
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = 16.dp,
-                vertical = 6.dp
-            ),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 3.dp
-        )
-    ) {
-
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-
-            Row(
-                verticalAlignment =
-                    Alignment.CenterVertically
-            ) {
-
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    YgBlue,
-                                    YgLightBlue
-                                )
-                            )
-                        ),
-                    contentAlignment =
-                        Alignment.Center
-                ) {
-                    Icon(
-                        imageVector =
-                            Icons.Default.Tv,
-                        contentDescription =
-                            null,
-                        tint = Color.White
-                    )
-                }
-
-                Spacer(
-                    modifier = Modifier.width(10.dp)
-                )
-
-                Column(
-                    modifier =
-                        Modifier.weight(1f)
-                ) {
-
-                    Text(
-                        text = "Control de reproducción",
-                        color = YgText,
-                        fontWeight =
-                            FontWeight.ExtraBold
-                    )
-
-                    Text(
-                        text =
-                            if (selectedVideo != null) {
-                                selectedVideo.title
-                            } else {
-                                "Controla todas las pantallas"
-                            },
-                        color = YgMuted,
-                        maxLines = 1,
-                        overflow =
-                            TextOverflow.Ellipsis,
-                        style =
-                            MaterialTheme
-                                .typography
-                                .bodySmall
-                    )
-                }
-            }
-
-            Spacer(
-                modifier = Modifier.height(14.dp)
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.SpaceEvenly,
-                verticalAlignment =
-                    Alignment.CenterVertically
-            ) {
-
-                PlaybackButton(
-                    icon = Icons.Default.SkipPrevious,
-                    label = "Anterior",
-                    enabled = service != null,
-                    onClick = {
-                        service?.previousAll()
-                    }
-                )
-
-                PlaybackButton(
-                    icon = Icons.Default.Stop,
-                    label = "Stop",
-                    enabled = service != null,
-                    onClick = {
-                        service?.stopAll()
-                    }
-                )
-
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    YgBlue,
-                                    YgLightBlue
-                                )
-                            )
-                        )
-                        .clickable(
-                            enabled = service != null
-                        ) {
-                            service?.playAll()
-                        },
-                    contentAlignment =
-                        Alignment.Center
-                ) {
-                    Icon(
-                        imageVector =
-                            Icons.Default.PlayArrow,
-                        contentDescription =
-                            "Play",
-                        tint = Color.White,
-                        modifier =
-                            Modifier.size(32.dp)
-                    )
-                }
-
-                PlaybackButton(
-                    icon = Icons.Default.Pause,
-                    label = "Pause",
-                    enabled = service != null,
-                    onClick = {
-                        service?.pauseAll()
-                    }
-                )
-
-                PlaybackButton(
-                    icon = Icons.Default.SkipNext,
-                    label = "Siguiente",
-                    enabled = service != null,
-                    onClick = {
-                        service?.nextAll()
-                    }
-                )
-            }
-
-            Spacer(
-                modifier = Modifier.height(14.dp)
-            )
-
-            Row(
-                verticalAlignment =
-                    Alignment.CenterVertically
-            ) {
-
-                Icon(
-                    imageVector =
-                        if (volume <= 0.01f) {
-                            Icons.Default.VolumeDown
-                        } else {
-                            Icons.Default.VolumeUp
-                        },
-                    contentDescription =
-                        "Volumen",
-                    tint = YgBlue
-                )
-
-                Slider(
-                    value = volume,
-                    onValueChange = onVolumeChange,
-                    onValueChangeFinished = {
-                        service?.setVolumeAll(
-                            volume
-                        )
-                    },
-                    valueRange = 0f..1f,
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .padding(
-                                horizontal = 8.dp
-                            )
-                )
-
-                Text(
-                    text =
-                        "${(volume * 100).toInt()}%",
-                    color = YgMuted,
-                    fontWeight =
-                        FontWeight.Bold,
-                    style =
-                        MaterialTheme
-                            .typography
-                            .labelMedium
-                )
-            }
-
-            Spacer(
-                modifier = Modifier.height(4.dp)
-            )
-
-            Text(
-                text =
-                    "⏪ ⏩ estarán disponibles al conectar la posición real del reproductor.",
-                color = YgMuted,
-                style =
-                    MaterialTheme
-                        .typography
-                        .labelSmall
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlaybackButton(
-    icon:
-        androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment =
-            Alignment.CenterHorizontally
-    ) {
-
-        IconButton(
-            onClick = onClick,
-            enabled = enabled
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint =
-                    if (enabled) {
-                        YgBlue
-                    } else {
-                        YgMuted.copy(
-                            alpha = 0.4f
-                        )
-                    },
-                modifier =
-                    Modifier.size(27.dp)
-            )
-        }
-
-        Text(
-            text = label,
-            color =
-                if (enabled) {
-                    YgMuted
-                } else {
-                    YgMuted.copy(
-                        alpha = 0.4f
-                    )
-                },
-            style =
-                MaterialTheme
-                    .typography
-                    .labelSmall
-        )
     }
 }
 
@@ -690,8 +752,8 @@ private fun Header(
             .padding(
                 start = 20.dp,
                 end = 12.dp,
-                top = 18.dp,
-                bottom = 8.dp
+                top = 14.dp,
+                bottom = 4.dp
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -715,7 +777,7 @@ private fun Header(
 
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(40.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
@@ -747,8 +809,8 @@ private fun SearchBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                horizontal = 16.dp,
-                vertical = 8.dp
+                horizontal = 12.dp,
+                vertical = 5.dp
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -758,7 +820,7 @@ private fun SearchBar(
             onValueChange = onQueryChange,
             modifier = Modifier.weight(1f),
             singleLine = true,
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(17.dp),
             placeholder = {
                 Text("Buscar en YouTube...")
             },
@@ -783,15 +845,13 @@ private fun SearchBar(
         )
 
         Spacer(
-            modifier = Modifier.width(8.dp)
+            modifier = Modifier.width(7.dp)
         )
 
         Box(
             modifier = Modifier
-                .size(54.dp)
-                .clip(
-                    RoundedCornerShape(17.dp)
-                )
+                .size(52.dp)
+                .clip(RoundedCornerShape(16.dp))
                 .background(
                     Brush.linearGradient(
                         listOf(
@@ -817,20 +877,24 @@ private fun SearchBar(
 @Composable
 private fun VideoList(
     results: List<YgYouTubeResult>,
-    onVideoClick: (YgYouTubeResult) -> Unit
+    onVideoClick: (YgYouTubeResult) -> Unit,
+    featuredVideoId: String? = null
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 14.dp,
-            end = 14.dp,
+            start = 12.dp,
+            end = 12.dp,
             bottom = 24.dp
         ),
         verticalArrangement =
-            Arrangement.spacedBy(12.dp)
+            Arrangement.spacedBy(10.dp)
     ) {
+
         items(
-            results,
+            results.filter {
+                it.videoId != featuredVideoId
+            },
             key = { it.videoId }
         ) { result ->
 
@@ -855,52 +919,44 @@ private fun VideoCard(
             .clickable {
                 onClick()
             },
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.White
         ),
-        elevation =
-            CardDefaults.cardElevation(
-                defaultElevation = 2.dp
-            )
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 1.dp
+        )
     ) {
 
         Row(
-            modifier = Modifier.padding(10.dp)
+            modifier = Modifier.padding(9.dp)
         ) {
 
             Box(
                 modifier = Modifier
-                    .width(150.dp)
-                    .height(86.dp)
+                    .width(145.dp)
+                    .height(82.dp)
                     .clip(
-                        RoundedCornerShape(12.dp)
+                        RoundedCornerShape(11.dp)
                     )
             ) {
 
                 AsyncImage(
                     model = result.thumbnailUrl,
-                    contentDescription =
-                        result.title,
-                    modifier =
-                        Modifier.fillMaxSize(),
-                    contentScale =
-                        ContentScale.Crop
+                    contentDescription = result.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
 
                 if (result.duration.isNotEmpty()) {
                     Surface(
                         modifier = Modifier
-                            .align(
-                                Alignment.BottomEnd
-                            )
+                            .align(Alignment.BottomEnd)
                             .padding(5.dp),
-                        shape =
-                            RoundedCornerShape(5.dp),
-                        color =
-                            Color.Black.copy(
-                                alpha = 0.78f
-                            )
+                        shape = RoundedCornerShape(5.dp),
+                        color = Color.Black.copy(
+                            alpha = 0.78f
+                        )
                     ) {
                         Text(
                             text = result.duration,
@@ -909,18 +965,17 @@ private fun VideoCard(
                                 MaterialTheme
                                     .typography
                                     .labelSmall,
-                            modifier =
-                                Modifier.padding(
-                                    horizontal = 5.dp,
-                                    vertical = 2.dp
-                                )
+                            modifier = Modifier.padding(
+                                horizontal = 5.dp,
+                                vertical = 2.dp
+                            )
                         )
                     }
                 }
             }
 
             Spacer(
-                modifier = Modifier.width(12.dp)
+                modifier = Modifier.width(11.dp)
             )
 
             Column(
@@ -932,8 +987,7 @@ private fun VideoCard(
                     color = YgText,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
-                    overflow =
-                        TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                     style =
                         MaterialTheme
                             .typography
@@ -941,15 +995,14 @@ private fun VideoCard(
                 )
 
                 Spacer(
-                    modifier = Modifier.height(5.dp)
+                    modifier = Modifier.height(4.dp)
                 )
 
                 Text(
                     text = result.channelName,
                     color = YgMuted,
                     maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                     style =
                         MaterialTheme
                             .typography
@@ -957,55 +1010,18 @@ private fun VideoCard(
                 )
 
                 Spacer(
-                    modifier = Modifier.height(6.dp)
+                    modifier = Modifier.height(5.dp)
                 )
 
-                Row(
-                    verticalAlignment =
-                        Alignment.CenterVertically
-                ) {
-
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        YgBlue,
-                                        YgLightBlue
-                                    )
-                                )
-                            ),
-                        contentAlignment =
-                            Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector =
-                                Icons.Default.PlayArrow,
-                            contentDescription =
-                                "Reproducir",
-                            tint = Color.White,
-                            modifier =
-                                Modifier.size(18.dp)
-                        )
-                    }
-
-                    Spacer(
-                        modifier =
-                            Modifier.width(6.dp)
-                    )
-
-                    Text(
-                        text = "Sincronizar",
-                        color = YgBlue,
-                        fontWeight = FontWeight.Bold,
-                        style =
-                            MaterialTheme
-                                .typography
-                                .labelMedium
-                    )
-                }
+                Text(
+                    text = "Tocar para reproducir",
+                    color = YgBlue,
+                    fontWeight = FontWeight.Bold,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .labelSmall
+                )
             }
         }
     }
@@ -1017,13 +1033,12 @@ private fun WelcomeView() {
         modifier = Modifier
             .fillMaxWidth()
             .padding(28.dp),
-        horizontalAlignment =
-            Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
         Box(
             modifier = Modifier
-                .size(82.dp)
+                .size(72.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(
@@ -1039,32 +1054,30 @@ private fun WelcomeView() {
                 Icons.Default.PlayArrow,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(46.dp)
+                modifier = Modifier.size(42.dp)
             )
         }
 
         Spacer(
-            modifier = Modifier.height(18.dp)
+            modifier = Modifier.height(16.dp)
         )
 
         Text(
             text = "¿Qué quieres reproducir?",
             color = YgText,
             fontWeight = FontWeight.ExtraBold,
-            style =
-                MaterialTheme.typography.headlineSmall
+            style = MaterialTheme.typography.headlineSmall
         )
 
         Spacer(
-            modifier = Modifier.height(8.dp)
+            modifier = Modifier.height(7.dp)
         )
 
         Text(
             text =
-                "Busca una canción, artista, video o género y sincronízalo en todas tus pantallas.",
+                "Busca una canción, artista, video o género.",
             color = YgMuted,
-            style =
-                MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium
         )
     }
 }
@@ -1091,13 +1104,11 @@ private fun ErrorView(
         modifier = Modifier
             .fillMaxWidth()
             .padding(24.dp),
-        horizontalAlignment =
-            Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
         Text(
-            text =
-                "No se pudo realizar la búsqueda",
+            text = "No se pudo realizar la búsqueda",
             color = YgText,
             fontWeight = FontWeight.Bold
         )
@@ -1115,7 +1126,8 @@ private fun ErrorView(
 
 @Composable
 private fun LibraryScreen(
-    selectedVideo: YgYouTubeResult?
+    savedVideos: List<YgYouTubeResult>,
+    onVideoClick: (YgYouTubeResult) -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxSize()
@@ -1125,32 +1137,68 @@ private fun LibraryScreen(
             title = "Biblioteca"
         )
 
-        if (selectedVideo == null) {
+        if (savedVideos.isEmpty()) {
 
-            Text(
-                text =
-                    "Todavía no hay una reproducción seleccionada.",
-                color = YgMuted,
-                modifier =
-                    Modifier.padding(24.dp)
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(28.dp),
+                horizontalAlignment =
+                    Alignment.CenterHorizontally
+            ) {
+
+                Icon(
+                    imageVector = Icons.Default.Bookmark,
+                    contentDescription = null,
+                    tint = YgMuted,
+                    modifier = Modifier.size(48.dp)
+                )
+
+                Spacer(
+                    modifier = Modifier.height(12.dp)
+                )
+
+                Text(
+                    text = "Tu biblioteca está vacía",
+                    color = YgText,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text =
+                        "Usa el icono de marcador para guardar canciones.",
+                    color = YgMuted
+                )
+            }
 
         } else {
 
-            Text(
-                text = "Última reproducción",
-                color = YgText,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(
-                    horizontal = 20.dp,
-                    vertical = 12.dp
-                )
-            )
+            LazyColumn(
+                contentPadding =
+                    PaddingValues(
+                        start = 12.dp,
+                        end = 12.dp,
+                        bottom = 24.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(10.dp)
+            ) {
 
-            VideoCard(
-                result = selectedVideo,
-                onClick = {}
-            )
+                items(
+                    savedVideos,
+                    key = {
+                        "saved_${it.videoId}"
+                    }
+                ) { video ->
+
+                    VideoCard(
+                        result = video,
+                        onClick = {
+                            onVideoClick(video)
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -1171,18 +1219,13 @@ private fun DevicesScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(
-                    horizontal = 18.dp
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
 
             Text(
-                text =
-                    "${receivers.size} pantallas",
-                modifier =
-                    Modifier.weight(1f),
+                text = "${receivers.size} pantallas",
+                modifier = Modifier.weight(1f),
                 color = YgMuted
             )
 
@@ -1218,8 +1261,7 @@ private fun DevicesScreen(
                 )
 
                 Text(
-                    text =
-                        "No hay pantallas conectadas",
+                    text = "No hay pantallas conectadas",
                     color = YgText,
                     fontWeight = FontWeight.Bold
                 )
@@ -1243,6 +1285,7 @@ private fun DevicesScreen(
                 verticalArrangement =
                     Arrangement.spacedBy(10.dp)
             ) {
+
                 items(
                     receivers,
                     key = { it.id }
@@ -1276,8 +1319,7 @@ private fun ReceiverCard(
 
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment =
-                Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically
         ) {
 
             Box(
@@ -1291,8 +1333,7 @@ private fun ReceiverCard(
                             Color(0xFFFFF3E0)
                         }
                     ),
-                contentAlignment =
-                    Alignment.Center
+                contentAlignment = Alignment.Center
             ) {
 
                 Icon(
@@ -1367,9 +1408,7 @@ private fun TechnicalScreen(
         mutableStateListOf<String>()
     }
 
-    fun addLog(
-        message: String
-    ) {
+    fun addLog(message: String) {
         val time =
             SimpleDateFormat(
                 "HH:mm:ss",
@@ -1419,16 +1458,14 @@ private fun TechnicalScreen(
 
             item {
                 TechnicalStatusCard(
-                    receiverCount =
-                        receivers.size
+                    receiverCount = receivers.size
                 )
             }
 
             item {
 
                 Row(
-                    modifier =
-                        Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement =
                         Arrangement.spacedBy(10.dp)
                 ) {
@@ -1448,8 +1485,7 @@ private fun TechnicalScreen(
                                 "Búsqueda de pantallas solicitada"
                             )
                         },
-                        modifier =
-                            Modifier.weight(1f),
+                        modifier = Modifier.weight(1f),
                         shape =
                             RoundedCornerShape(13.dp),
                         contentPadding =
@@ -1460,22 +1496,18 @@ private fun TechnicalScreen(
                         colors =
                             ButtonDefaults
                                 .buttonColors(
-                                    containerColor =
-                                        YgBlue
+                                    containerColor = YgBlue
                                 )
                     ) {
 
                         Icon(
                             Icons.Default.Refresh,
-                            contentDescription =
-                                null,
-                            modifier =
-                                Modifier.size(18.dp)
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
                         )
 
                         Spacer(
-                            modifier =
-                                Modifier.width(6.dp)
+                            modifier = Modifier.width(6.dp)
                         )
 
                         Text(
@@ -1499,8 +1531,7 @@ private fun TechnicalScreen(
                                 }"
                             )
                         },
-                        modifier =
-                            Modifier.weight(0.72f),
+                        modifier = Modifier.weight(0.72f),
                         shape =
                             RoundedCornerShape(13.dp),
                         contentPadding =
@@ -1512,15 +1543,12 @@ private fun TechnicalScreen(
 
                         Icon(
                             Icons.Default.Build,
-                            contentDescription =
-                                null,
-                            modifier =
-                                Modifier.size(17.dp)
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp)
                         )
 
                         Spacer(
-                            modifier =
-                                Modifier.width(5.dp)
+                            modifier = Modifier.width(5.dp)
                         )
 
                         Text(
@@ -1535,8 +1563,7 @@ private fun TechnicalScreen(
                 Text(
                     text = "Pantallas",
                     color = YgText,
-                    fontWeight =
-                        FontWeight.ExtraBold,
+                    fontWeight = FontWeight.ExtraBold,
                     style =
                         MaterialTheme
                             .typography
@@ -1587,17 +1614,14 @@ private fun TechnicalStatusCard(
     receiverCount: Int
 ) {
     val serviceActive =
-        ControllerSyncService
-            .getInstance() != null
+        ControllerSyncService.getInstance() != null
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape =
-            RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(18.dp),
         colors =
             CardDefaults.cardColors(
-                containerColor =
-                    Color.White
+                containerColor = Color.White
             ),
         elevation =
             CardDefaults.cardElevation(
@@ -1630,37 +1654,30 @@ private fun TechnicalStatusCard(
                 ) {
 
                     Icon(
-                        imageVector =
-                            Icons.Default.Wifi,
-                        contentDescription =
-                            null,
+                        imageVector = Icons.Default.Wifi,
+                        contentDescription = null,
                         tint =
                             if (serviceActive) {
                                 Color(0xFF2E7D32)
                             } else {
                                 Color(0xFFC62828)
                             },
-                        modifier =
-                            Modifier.size(21.dp)
+                        modifier = Modifier.size(21.dp)
                     )
                 }
 
                 Spacer(
-                    modifier =
-                        Modifier.width(11.dp)
+                    modifier = Modifier.width(11.dp)
                 )
 
                 Column(
-                    modifier =
-                        Modifier.weight(1f)
+                    modifier = Modifier.weight(1f)
                 ) {
 
                     Text(
-                        text =
-                            "Estado general",
+                        text = "Estado general",
                         color = YgText,
-                        fontWeight =
-                            FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold
                     )
 
                     Text(
@@ -1691,8 +1708,7 @@ private fun TechnicalStatusCard(
                         } else {
                             Color(0xFFC62828)
                         },
-                    fontWeight =
-                        FontWeight.Bold,
+                    fontWeight = FontWeight.Bold,
                     style =
                         MaterialTheme
                             .typography
@@ -1701,13 +1717,11 @@ private fun TechnicalStatusCard(
             }
 
             Spacer(
-                modifier =
-                    Modifier.height(14.dp)
+                modifier = Modifier.height(14.dp)
             )
 
             Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement =
                     Arrangement.spacedBy(8.dp)
             ) {
@@ -1715,23 +1729,19 @@ private fun TechnicalStatusCard(
                 TechnicalMiniStatus(
                     title = "UDP",
                     value = "8766",
-                    modifier =
-                        Modifier.weight(1f)
+                    modifier = Modifier.weight(1f)
                 )
 
                 TechnicalMiniStatus(
                     title = "TCP",
                     value = "8765",
-                    modifier =
-                        Modifier.weight(1f)
+                    modifier = Modifier.weight(1f)
                 )
 
                 TechnicalMiniStatus(
                     title = "Pantallas",
-                    value =
-                        receiverCount.toString(),
-                    modifier =
-                        Modifier.weight(1f)
+                    value = receiverCount.toString(),
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -1746,17 +1756,15 @@ private fun TechnicalMiniStatus(
 ) {
     Surface(
         modifier = modifier,
-        shape =
-            RoundedCornerShape(11.dp),
+        shape = RoundedCornerShape(11.dp),
         color = YgBackground
     ) {
 
         Column(
-            modifier =
-                Modifier.padding(
-                    horizontal = 9.dp,
-                    vertical = 8.dp
-                ),
+            modifier = Modifier.padding(
+                horizontal = 9.dp,
+                vertical = 8.dp
+            ),
             horizontalAlignment =
                 Alignment.CenterHorizontally
         ) {
@@ -1771,15 +1779,13 @@ private fun TechnicalMiniStatus(
             )
 
             Spacer(
-                modifier =
-                    Modifier.height(2.dp)
+                modifier = Modifier.height(2.dp)
             )
 
             Text(
                 text = value,
                 color = YgText,
-                fontWeight =
-                    FontWeight.Bold,
+                fontWeight = FontWeight.Bold,
                 style =
                     MaterialTheme
                         .typography
@@ -1795,14 +1801,11 @@ private fun TechnicalReceiverCard(
     onTest: () -> Unit
 ) {
     Card(
-        modifier =
-            Modifier.fillMaxWidth(),
-        shape =
-            RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
         colors =
             CardDefaults.cardColors(
-                containerColor =
-                    Color.White
+                containerColor = Color.White
             ),
         elevation =
             CardDefaults.cardElevation(
@@ -1811,8 +1814,7 @@ private fun TechnicalReceiverCard(
     ) {
 
         Column(
-            modifier =
-                Modifier.padding(14.dp)
+            modifier = Modifier.padding(14.dp)
         ) {
 
             Row(
@@ -1837,34 +1839,29 @@ private fun TechnicalReceiverCard(
 
                     Icon(
                         Icons.Default.Tv,
-                        contentDescription =
-                            null,
+                        contentDescription = null,
                         tint =
                             if (receiver.connected) {
                                 Color(0xFF2E7D32)
                             } else {
                                 Color(0xFFEF6C00)
                             },
-                        modifier =
-                            Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 Spacer(
-                    modifier =
-                        Modifier.width(10.dp)
+                    modifier = Modifier.width(10.dp)
                 )
 
                 Column(
-                    modifier =
-                        Modifier.weight(1f)
+                    modifier = Modifier.weight(1f)
                 ) {
 
                     Text(
                         text = receiver.name,
                         color = YgText,
-                        fontWeight =
-                            FontWeight.Bold,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow =
                             TextOverflow.Ellipsis
@@ -1898,8 +1895,7 @@ private fun TechnicalReceiverCard(
                         } else {
                             Color(0xFFEF6C00)
                         },
-                    fontWeight =
-                        FontWeight.Bold,
+                    fontWeight = FontWeight.Bold,
                     style =
                         MaterialTheme
                             .typography
@@ -1908,20 +1904,17 @@ private fun TechnicalReceiverCard(
             }
 
             Spacer(
-                modifier =
-                    Modifier.height(10.dp)
+                modifier = Modifier.height(10.dp)
             )
 
             Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment =
                     Alignment.CenterVertically
             ) {
 
                 Column(
-                    modifier =
-                        Modifier.weight(1f)
+                    modifier = Modifier.weight(1f)
                 ) {
 
                     Text(
@@ -1945,8 +1938,7 @@ private fun TechnicalReceiverCard(
 
                 OutlinedButton(
                     onClick = onTest,
-                    enabled =
-                        receiver.connected,
+                    enabled = receiver.connected,
                     shape =
                         RoundedCornerShape(10.dp),
                     contentPadding =
@@ -1967,36 +1959,29 @@ private fun TechnicalReceiverCard(
 @Composable
 private fun TechnicalEmptyCard() {
     Card(
-        modifier =
-            Modifier.fillMaxWidth(),
-        shape =
-            RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
         colors =
             CardDefaults.cardColors(
-                containerColor =
-                    Color.White
+                containerColor = Color.White
             )
     ) {
 
         Row(
-            modifier =
-                Modifier.padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment =
                 Alignment.CenterVertically
         ) {
 
             Icon(
                 Icons.Default.Tv,
-                contentDescription =
-                    null,
+                contentDescription = null,
                 tint = YgMuted,
-                modifier =
-                    Modifier.size(30.dp)
+                modifier = Modifier.size(30.dp)
             )
 
             Spacer(
-                modifier =
-                    Modifier.width(12.dp)
+                modifier = Modifier.width(12.dp)
             )
 
             Column {
@@ -2005,8 +1990,7 @@ private fun TechnicalEmptyCard() {
                     text =
                         "No se detectaron pantallas",
                     color = YgText,
-                    fontWeight =
-                        FontWeight.Bold
+                    fontWeight = FontWeight.Bold
                 )
 
                 Text(
@@ -2029,20 +2013,16 @@ private fun TechnicalLogCard(
     lastRefresh: String?
 ) {
     Card(
-        modifier =
-            Modifier.fillMaxWidth(),
-        shape =
-            RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
         colors =
             CardDefaults.cardColors(
-                containerColor =
-                    Color.White
+                containerColor = Color.White
             )
     ) {
 
         Column(
-            modifier =
-                Modifier.padding(14.dp)
+            modifier = Modifier.padding(14.dp)
         ) {
 
             Row(
@@ -2052,29 +2032,24 @@ private fun TechnicalLogCard(
 
                 Icon(
                     Icons.Default.Build,
-                    contentDescription =
-                        null,
+                    contentDescription = null,
                     tint = YgBlue,
-                    modifier =
-                        Modifier.size(19.dp)
+                    modifier = Modifier.size(19.dp)
                 )
 
                 Spacer(
-                    modifier =
-                        Modifier.width(7.dp)
+                    modifier = Modifier.width(7.dp)
                 )
 
                 Text(
                     text = "Registro",
                     color = YgText,
-                    fontWeight =
-                        FontWeight.ExtraBold
+                    fontWeight = FontWeight.ExtraBold
                 )
             }
 
             Spacer(
-                modifier =
-                    Modifier.height(9.dp)
+                modifier = Modifier.height(9.dp)
             )
 
             if (lastRefresh != null) {
@@ -2090,16 +2065,14 @@ private fun TechnicalLogCard(
                 )
 
                 Spacer(
-                    modifier =
-                        Modifier.height(7.dp)
+                    modifier = Modifier.height(7.dp)
                 )
             }
 
             if (logs.isEmpty()) {
 
                 Text(
-                    text =
-                        "Esperando eventos...",
+                    text = "Esperando eventos...",
                     color = YgMuted,
                     style =
                         MaterialTheme
@@ -2143,31 +2116,25 @@ private fun SettingsScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            shape =
-                RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(18.dp),
             colors =
                 CardDefaults.cardColors(
-                    containerColor =
-                        Color.White
+                    containerColor = Color.White
                 )
         ) {
 
             Column(
-                modifier =
-                    Modifier.padding(20.dp)
+                modifier = Modifier.padding(20.dp)
             ) {
 
                 Text(
-                    text =
-                        "YG Sync Controller",
+                    text = "YG Sync Controller",
                     color = YgText,
-                    fontWeight =
-                        FontWeight.ExtraBold
+                    fontWeight = FontWeight.ExtraBold
                 )
 
                 Spacer(
-                    modifier =
-                        Modifier.height(6.dp)
+                    modifier = Modifier.height(6.dp)
                 )
 
                 Text(
@@ -2202,78 +2169,60 @@ private fun BottomNavigationBar(
         ) {
 
             BottomItem(
-                modifier =
-                    Modifier.weight(1f),
-                icon =
-                    Icons.Default.Home,
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Home,
                 label = "Inicio",
-                selected =
-                    selectedTab == 0,
+                selected = selectedTab == 0,
                 onClick = {
                     onTabSelected(0)
                 }
             )
 
             BottomItem(
-                modifier =
-                    Modifier.weight(1f),
-                icon =
-                    Icons.Default.Search,
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Search,
                 label = "Buscar",
-                selected =
-                    selectedTab == 1,
+                selected = selectedTab == 1,
                 onClick = {
                     onTabSelected(1)
                 }
             )
 
             BottomItem(
-                modifier =
-                    Modifier.weight(1f),
-                icon =
-                    Icons.Default.LibraryMusic,
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.LibraryMusic,
                 label = "Biblioteca",
-                selected =
-                    selectedTab == 2,
+                selected = selectedTab == 2,
                 onClick = {
                     onTabSelected(2)
                 }
             )
 
             BottomItem(
-                modifier =
-                    Modifier.weight(1f),
-                icon =
-                    Icons.Default.Tv,
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Tv,
                 label = "Pantallas",
-                selected =
-                    selectedTab == 3,
+                selected = selectedTab == 3,
                 onClick = {
                     onTabSelected(3)
                 }
             )
 
             BottomItem(
-                modifier =
-                    Modifier.weight(1f),
-                icon =
-                    Icons.Default.Build,
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Build,
                 label = "Técnico",
-                selected =
-                    selectedTab == 4,
+                selected = selectedTab == 4,
                 onClick = {
                     onTabSelected(4)
                 }
             )
 
             BottomItem(
-                modifier =
-                    Modifier.weight(1f),
-                icon =
-                    Icons.Default.Settings,
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Settings,
                 label = "Ajustes",
-                selected =
-                    selectedTab == 5,
+                selected = selectedTab == 5,
                 onClick = {
                     onTabSelected(5)
                 }
@@ -2317,8 +2266,7 @@ private fun BottomItem(
                 } else {
                     YgMuted
                 },
-            modifier =
-                Modifier.size(22.dp)
+            modifier = Modifier.size(22.dp)
         )
 
         Text(
