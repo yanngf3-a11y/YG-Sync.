@@ -75,7 +75,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -198,8 +201,8 @@ private fun YgSyncApp(context: Context) {
         mutableStateOf<List<Receiver>>(emptyList())
     }
 
-    var serviceDiagnostic by remember {
-        mutableStateOf<String?>(null)
+    var serviceDiagnosticLog by remember {
+        mutableStateOf<List<String>>(emptyList())
     }
 
     var volume by remember {
@@ -231,8 +234,8 @@ private fun YgSyncApp(context: Context) {
                 receivers =
                     service.receiverList.value
 
-                serviceDiagnostic =
-                    service.diagnostic.value
+                serviceDiagnosticLog =
+                    service.diagnosticLog.value
 
                 /*
                  * Tomamos la primera pantalla conectada como
@@ -411,7 +414,7 @@ private fun YgSyncApp(context: Context) {
 
                     4 -> TechnicalScreen(
                         receivers = receivers,
-                        diagnostic = serviceDiagnostic,
+                        diagnostic = serviceDiagnosticLog,
                         onRefresh = {
                             val service =
                                 ControllerSyncService
@@ -548,6 +551,46 @@ private fun HomeScreen(
 }
 
 @Composable
+private fun VerticalSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f
+) {
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        valueRange = valueRange,
+        modifier = modifier
+            .graphicsLayer {
+                rotationZ = 270f
+                transformOrigin = TransformOrigin(0f, 0f)
+            }
+            .layout { measurable, constraints ->
+
+                val placeable =
+                    measurable.measure(
+                        Constraints(
+                            minWidth = constraints.minHeight,
+                            maxWidth = constraints.maxHeight,
+                            minHeight = constraints.minWidth,
+                            maxHeight = constraints.maxWidth
+                        )
+                    )
+
+                layout(placeable.height, placeable.width) {
+                    placeable.place(
+                        x = -(placeable.width / 2 - placeable.height / 2),
+                        y = -(placeable.height / 2 - placeable.width / 2)
+                    )
+                }
+            }
+    )
+}
+
+@Composable
 private fun FeaturedVideoPlayer(
     video: YgYouTubeResult,
     volume: Float,
@@ -673,28 +716,18 @@ private fun FeaturedVideoPlayer(
                         .padding(bottom = 4.dp)
                 )
 
-                Box(
+                VerticalSlider(
+                    value = volume,
+                    onValueChange = onVolumeChange,
+                    onValueChangeFinished = {
+                        ControllerSyncService
+                            .getInstance()
+                            ?.setVolumeAll(volume)
+                    },
                     modifier = Modifier
                         .weight(1f)
-                        .width(40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Slider(
-                        value = volume,
-                        onValueChange = onVolumeChange,
-                        onValueChangeFinished = {
-                            ControllerSyncService
-                                .getInstance()
-                                ?.setVolumeAll(volume)
-                        },
-                        valueRange = 0f..1f,
-                        modifier = Modifier
-                            .width(150.dp)
-                            .graphicsLayer {
-                                rotationZ = -90f
-                            }
-                    )
-                }
+                        .width(28.dp)
+                )
             }
 
             Row(
@@ -1548,7 +1581,7 @@ private fun ReceiverCard(
 @Composable
 private fun TechnicalScreen(
     receivers: List<Receiver>,
-    diagnostic: String? = null,
+    diagnostic: List<String> = emptyList(),
     onRefresh: () -> Unit
 ) {
     var lastRefresh by remember {
@@ -1586,11 +1619,14 @@ private fun TechnicalScreen(
         }
     }
 
-    LaunchedEffect(diagnostic) {
-        if (diagnostic != null) {
-            addLog(diagnostic)
-        }
-    }
+    /*
+     * El historial completo del servicio ya viene con hora
+     * incluida y sin perder mensajes intermedios (antes solo
+     * se veía el último). Lo mostramos más reciente primero,
+     * mezclado con los eventos propios de esta pantalla.
+     */
+    val combinedLog =
+        (diagnostic.asReversed() + eventLog).take(20)
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -1758,7 +1794,7 @@ private fun TechnicalScreen(
             item {
 
                 TechnicalLogCard(
-                    logs = eventLog,
+                    logs = combinedLog,
                     lastRefresh = lastRefresh
                 )
             }
@@ -2239,7 +2275,7 @@ private fun TechnicalLogCard(
 
             } else {
 
-                logs.take(8).forEach { log ->
+                logs.take(15).forEach { log ->
 
                     Text(
                         text = log,
