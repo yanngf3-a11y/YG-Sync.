@@ -167,6 +167,10 @@ private fun YgSyncApp(context: Context) {
         mutableStateOf<List<Receiver>>(emptyList())
     }
 
+    var serviceDiagnostic by remember {
+        mutableStateOf<String?>(null)
+    }
+
     var volume by remember {
         mutableFloatStateOf(1f)
     }
@@ -187,9 +191,12 @@ private fun YgSyncApp(context: Context) {
             if (service != null) {
                 receivers =
                     service.receiverList.value
+
+                serviceDiagnostic =
+                    service.diagnostic.value
             }
 
-            delay(3000)
+            delay(1000)
         }
     }
 
@@ -327,6 +334,7 @@ private fun YgSyncApp(context: Context) {
 
                     4 -> TechnicalScreen(
                         receivers = receivers,
+                        diagnostic = serviceDiagnostic,
                         onRefresh = {
                             val service =
                                 ControllerSyncService
@@ -1398,6 +1406,7 @@ private fun ReceiverCard(
 @Composable
 private fun TechnicalScreen(
     receivers: List<Receiver>,
+    diagnostic: String? = null,
     onRefresh: () -> Unit
 ) {
     var lastRefresh by remember {
@@ -1432,6 +1441,12 @@ private fun TechnicalScreen(
             addLog(
                 "Pantallas detectadas: ${receivers.size}"
             )
+        }
+    }
+
+    LaunchedEffect(diagnostic) {
+        if (diagnostic != null) {
+            addLog(diagnostic)
         }
     }
 
