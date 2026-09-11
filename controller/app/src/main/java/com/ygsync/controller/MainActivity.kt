@@ -351,6 +351,7 @@ private fun YgSyncApp(context: Context) {
                         onQueryChange = viewModel::setQuery,
                         onSearch = viewModel::search,
                         onClear = viewModel::clearSearch,
+                        onSuggestionClick = viewModel::selectSuggestion,
                         onVideoClick = { video ->
                             selectedVideo = video
                             isPlaying = true
@@ -369,6 +370,7 @@ private fun YgSyncApp(context: Context) {
                         onQueryChange = viewModel::setQuery,
                         onSearch = viewModel::search,
                         onClear = viewModel::clearSearch,
+                        onSuggestionClick = viewModel::selectSuggestion,
                         onVideoClick = { video ->
                             selectedVideo = video
                             isPlaying = true
@@ -459,6 +461,7 @@ private fun HomeScreen(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
+    onSuggestionClick: (String) -> Unit,
     onVideoClick: (YgYouTubeResult) -> Unit
 ) {
     /*
@@ -484,7 +487,9 @@ private fun HomeScreen(
             query = uiState.query,
             onQueryChange = onQueryChange,
             onSearch = onSearch,
-            onClear = onClear
+            onClear = onClear,
+            suggestions = uiState.querySuggestions,
+            onSuggestionClick = onSuggestionClick
         )
 
         if (uiState.isLoading) {
@@ -883,6 +888,7 @@ private fun SearchScreen(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
+    onSuggestionClick: (String) -> Unit,
     onVideoClick: (YgYouTubeResult) -> Unit
 ) {
     Column(
@@ -895,7 +901,9 @@ private fun SearchScreen(
             query = uiState.query,
             onQueryChange = onQueryChange,
             onSearch = onSearch,
-            onClear = onClear
+            onClear = onClear,
+            suggestions = uiState.querySuggestions,
+            onSuggestionClick = onSuggestionClick
         )
 
         if (uiState.isLoading) {
@@ -986,73 +994,142 @@ private fun SearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    suggestions: List<String> = emptyList(),
+    onSuggestionClick: (String) -> Unit = {}
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = 12.dp,
-                vertical = 5.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically
+    Column(
+        modifier = Modifier.fillMaxWidth()
     ) {
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-            shape = RoundedCornerShape(17.dp),
-            placeholder = {
-                Text("Buscar en YouTube...")
-            },
-            leadingIcon = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 12.dp,
+                    vertical = 5.dp
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                shape = RoundedCornerShape(17.dp),
+                placeholder = {
+                    Text("Buscar en YouTube...")
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Buscar"
+                    )
+                },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(
+                            onClick = onClear
+                        ) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "Limpiar"
+                            )
+                        }
+                    }
+                }
+            )
+
+            Spacer(
+                modifier = Modifier.width(7.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                YgBlue,
+                                YgLightBlue
+                            )
+                        )
+                    )
+                    .clickable {
+                        onSearch()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
                     Icons.Default.Search,
-                    contentDescription = "Buscar"
+                    contentDescription = "Buscar",
+                    tint = Color.White
                 )
-            },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(
-                        onClick = onClear
-                    ) {
-                        Icon(
-                            Icons.Default.Clear,
-                            contentDescription = "Limpiar"
-                        )
+            }
+        }
+
+        if (suggestions.isNotEmpty()) {
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 12.dp
+                    ),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.White
+                ),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = 3.dp
+                )
+            ) {
+
+                Column {
+
+                    suggestions.take(6).forEach { suggestion ->
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSuggestionClick(suggestion)
+                                }
+                                .padding(
+                                    horizontal = 14.dp,
+                                    vertical = 11.dp
+                                ),
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = YgMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+
+                            Spacer(
+                                modifier = Modifier.width(10.dp)
+                            )
+
+                            Text(
+                                text = suggestion,
+                                color = YgText,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style =
+                                    MaterialTheme
+                                        .typography
+                                        .bodyMedium
+                            )
+                        }
                     }
                 }
             }
-        )
-
-        Spacer(
-            modifier = Modifier.width(7.dp)
-        )
-
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            YgBlue,
-                            YgLightBlue
-                        )
-                    )
-                )
-                .clickable {
-                    onSearch()
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = "Buscar",
-                tint = Color.White
-            )
         }
     }
 }
