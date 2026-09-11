@@ -83,6 +83,11 @@ class ControllerSyncService : Service() {
     val diagnostic: StateFlow<String> =
         _diagnostic.asStateFlow()
 
+    private val _diagnosticLog =
+        MutableStateFlow<List<String>>(emptyList())
+    val diagnosticLog: StateFlow<List<String>> =
+        _diagnosticLog.asStateFlow()
+
     override fun onCreate() {
         super.onCreate()
 
@@ -870,6 +875,16 @@ class ControllerSyncService : Service() {
     ) {
 
         _diagnostic.value = message
+
+        val time =
+            java.text.SimpleDateFormat(
+                "HH:mm:ss",
+                java.util.Locale.getDefault()
+            ).format(java.util.Date())
+
+        _diagnosticLog.value =
+            (_diagnosticLog.value + "$time  •  $message")
+                .takeLast(50)
     }
 
     private fun createNotificationChannel() {
