@@ -75,6 +75,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,6 +100,36 @@ private val YgBackground = Color(0xFFF6F8FC)
 private val YgText = Color(0xFF172033)
 private val YgMuted = Color(0xFF718096)
 private val YgSaveRed = Color(0xFFE53935)
+
+private fun formatSeconds(totalSeconds: Int): String {
+
+    val safeSeconds = totalSeconds.coerceAtLeast(0)
+
+    val hours = safeSeconds / 3600
+    val minutes = (safeSeconds % 3600) / 60
+    val seconds = safeSeconds % 60
+
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%d:%02d", minutes, seconds)
+    }
+}
+
+private fun parseDurationToSeconds(duration: String): Int {
+
+    val parts =
+        duration.trim().split(":").mapNotNull {
+            it.toIntOrNull()
+        }
+
+    return when (parts.size) {
+        3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]
+        2 -> parts[0] * 60 + parts[1]
+        1 -> parts[0]
+        else -> 0
+    }
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -179,6 +210,14 @@ private fun YgSyncApp(context: Context) {
         mutableStateOf(false)
     }
 
+    var livePositionSec by remember {
+        mutableFloatStateOf(0f)
+    }
+
+    var lastKnownPositionSec by remember {
+        mutableFloatStateOf(-1f)
+    }
+
     val savedVideos = remember {
         mutableStateListOf<YgYouTubeResult>()
     }
@@ -194,6 +233,27 @@ private fun YgSyncApp(context: Context) {
 
                 serviceDiagnostic =
                     service.diagnostic.value
+
+                /*
+                 * Tomamos la primera pantalla conectada como
+                 * referencia para la barra de avance (misma
+                 * que usa el mirror de autoplay del servicio).
+                 */
+                val reference =
+                    receivers.firstOrNull { it.connected }
+
+                if (reference != null) {
+
+                    val realPositionSec =
+                        reference.playbackPosition / 1000f
+
+                    if (realPositionSec != lastKnownPositionSec) {
+                        lastKnownPositionSec = realPositionSec
+                        livePositionSec = realPositionSec
+                    } else if (reference.isPlaying) {
+                        livePositionSec += 1f
+                    }
+                }
             }
 
             delay(1000)
@@ -221,6 +281,7 @@ private fun YgSyncApp(context: Context) {
                         selectedVideo = selectedVideo,
                         volume = volume,
                         isPlaying = isPlaying,
+                        positionSec = livePositionSec,
                         savedVideos = savedVideos,
                         onVolumeChange = {
                             volume = it
@@ -274,12 +335,24 @@ private fun YgSyncApp(context: Context) {
                                 ).show()
                             }
                         },
+                        onSeek = { newPositionSec ->
+                            lastKnownPositionSec = newPositionSec
+                            livePositionSec = newPositionSec
+
+                            ControllerSyncService
+                                .getInstance()
+                                ?.seekAll(
+                                    (newPositionSec * 1000).toLong()
+                                )
+                        },
                         onQueryChange = viewModel::setQuery,
                         onSearch = viewModel::search,
                         onClear = viewModel::clearSearch,
                         onVideoClick = { video ->
                             selectedVideo = video
                             isPlaying = true
+                            livePositionSec = 0f
+                            lastKnownPositionSec = -1f
 
                             sendVideoToReceivers(
                                 context,
@@ -296,6 +369,8 @@ private fun YgSyncApp(context: Context) {
                         onVideoClick = { video ->
                             selectedVideo = video
                             isPlaying = true
+                            livePositionSec = 0f
+                            lastKnownPositionSec = -1f
 
                             sendVideoToReceivers(
                                 context,
@@ -309,6 +384,8 @@ private fun YgSyncApp(context: Context) {
                         onVideoClick = { video ->
                             selectedVideo = video
                             isPlaying = true
+                            livePositionSec = 0f
+                            lastKnownPositionSec = -1f
 
                             sendVideoToReceivers(
                                 context,
@@ -368,19 +445,31 @@ private fun HomeScreen(
     selectedVideo: YgYouTubeResult?,
     volume: Float,
     isPlaying: Boolean,
+    positionSec: Float,
     savedVideos: List<YgYouTubeResult>,
     onVolumeChange: (Float) -> Unit,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onSave: (YgYouTubeResult) -> Unit,
+    onSeek: (Float) -> Unit,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onClear: () -> Unit,
     onVideoClick: (YgYouTubeResult) -> Unit
 ) {
+    /*
+     * Si no hay una búsqueda activa, usamos las sugerencias
+     * por defecto para que siempre haya opciones de canciones
+     * distintas para tocar, sin tener que buscar.
+     */
+    val displayResults =
+        uiState.results.ifEmpty {
+            uiState.suggestions
+        }
+
     val featuredVideo =
-        selectedVideo ?: uiState.results.firstOrNull()
+        selectedVideo ?: displayResults.firstOrNull()
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -414,13 +503,19 @@ private fun HomeScreen(
                     isSaved = savedVideos.any {
                         it.videoId == featuredVideo.videoId
                     },
+                    positionSec = positionSec,
+                    durationSec =
+                        parseDurationToSeconds(
+                            featuredVideo.duration
+                        ),
                     onVolumeChange = onVolumeChange,
                     onPlayPause = onPlayPause,
                     onPrevious = onPrevious,
                     onNext = onNext,
                     onSave = {
                         onSave(featuredVideo)
-                    }
+                    },
+                    onSeek = onSeek
                 )
 
                 Spacer(
@@ -439,7 +534,7 @@ private fun HomeScreen(
                 )
 
                 VideoList(
-                    results = uiState.results,
+                    results = displayResults,
                     onVideoClick = onVideoClick,
                     featuredVideoId = featuredVideo.videoId
                 )
@@ -458,12 +553,26 @@ private fun FeaturedVideoPlayer(
     volume: Float,
     isPlaying: Boolean,
     isSaved: Boolean,
+    positionSec: Float,
+    durationSec: Int,
     onVolumeChange: (Float) -> Unit,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onSeek: (Float) -> Unit
 ) {
+    var draggingPosition by remember {
+        mutableStateOf<Float?>(null)
+    }
+
+    val safeDuration =
+        durationSec.coerceAtLeast(1)
+
+    val shownPosition =
+        (draggingPosition ?: positionSec)
+            .coerceIn(0f, safeDuration.toFloat())
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -480,7 +589,7 @@ private fun FeaturedVideoPlayer(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(245.dp)
+                .height(260.dp)
                 .clip(RoundedCornerShape(18.dp))
         ) {
 
@@ -536,28 +645,40 @@ private fun FeaturedVideoPlayer(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
 
-                Spacer(
-                    modifier = Modifier.height(4.dp)
+            /*
+             * Volumen: vertical, del lado derecho.
+             */
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 6.dp)
+                    .width(46.dp)
+                    .height(190.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+
+                Icon(
+                    imageVector =
+                        if (volume <= 0.01f) {
+                            Icons.Default.VolumeDown
+                        } else {
+                            Icons.Default.VolumeUp
+                        },
+                    contentDescription = "Volumen",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .padding(bottom = 4.dp)
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .width(40.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-
-                    Icon(
-                        imageVector =
-                            if (volume <= 0.01f) {
-                                Icons.Default.VolumeDown
-                            } else {
-                                Icons.Default.VolumeUp
-                            },
-                        contentDescription = "Volumen",
-                        tint = Color.White,
-                        modifier = Modifier.size(19.dp)
-                    )
-
                     Slider(
                         value = volume,
                         onValueChange = onVolumeChange,
@@ -568,10 +689,10 @@ private fun FeaturedVideoPlayer(
                         },
                         valueRange = 0f..1f,
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(
-                                horizontal = 6.dp
-                            )
+                            .width(150.dp)
+                            .graphicsLayer {
+                                rotationZ = -90f
+                            }
                     )
                 }
             }
@@ -627,46 +748,67 @@ private fun FeaturedVideoPlayer(
                 )
             }
 
-            IconButton(
-                onClick = onSave,
+            /*
+             * Abajo: tiempo, barra de avance y guardar,
+             * todo en la misma fila.
+             */
+            Row(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(10.dp)
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Color.White.copy(alpha = 0.94f)
-                    )
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(
+                        start = 12.dp,
+                        end = 10.dp,
+                        bottom = 8.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Bookmark,
-                    contentDescription = "Guardar",
-                    tint =
-                        if (isSaved) {
-                            YgSaveRed
-                        } else {
-                            YgText
-                        },
-                    modifier = Modifier.size(25.dp)
-                )
-            }
 
-            if (video.duration.isNotEmpty()) {
-                Surface(
+                Text(
+                    text =
+                        "${formatSeconds(shownPosition.toInt())} / " +
+                            formatSeconds(safeDuration),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(end = 6.dp)
+                )
+
+                Slider(
+                    value = shownPosition,
+                    onValueChange = {
+                        draggingPosition = it
+                    },
+                    onValueChangeFinished = {
+                        draggingPosition?.let {
+                            onSeek(it)
+                        }
+                        draggingPosition = null
+                    },
+                    valueRange = 0f..safeDuration.toFloat(),
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(12.dp),
-                    shape = RoundedCornerShape(5.dp),
-                    color = Color.Black.copy(alpha = 0.72f)
-                ) {
-                    Text(
-                        text = video.duration,
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(
-                            horizontal = 6.dp,
-                            vertical = 3.dp
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
+                )
+
+                IconButton(
+                    onClick = onSave,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Color.White.copy(alpha = 0.94f)
                         )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bookmark,
+                        contentDescription = "Guardar",
+                        tint =
+                            if (isSaved) {
+                                YgSaveRed
+                            } else {
+                                YgText
+                            },
+                        modifier = Modifier.size(21.dp)
                     )
                 }
             }
