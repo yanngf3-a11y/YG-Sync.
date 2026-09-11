@@ -6,7 +6,7 @@ class YgYouTubeRepository(
 
     suspend fun search(
         query: String,
-        maxResults: Int = 20
+        maxResults: Int = 60
     ): Result<List<YgYouTubeResult>> {
 
         return try {
@@ -27,6 +27,17 @@ class YgYouTubeRepository(
         } catch (e: Exception) {
 
             Result.failure(e)
+        }
+    }
+
+    suspend fun suggestQueries(
+        query: String
+    ): List<String> {
+
+        return try {
+            engine.suggestQueries(query)
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 }
