@@ -26,7 +26,7 @@ class YgYouTubeEngine(
 
     suspend fun search(
         query: String,
-        maxResults: Int = 20
+        maxResults: Int = 60
     ): List<YgYouTubeResult> {
 
         return withContext(Dispatchers.IO) {
@@ -43,14 +43,59 @@ class YgYouTubeEngine(
 
                 val service = ServiceList.YouTube
 
-                val searchInfo = SearchInfo.getInfo(
-                    service,
+                val queryHandler =
                     service.getSearchQHFactory()
                         .fromQuery(cleanQuery)
+
+                val searchInfo = SearchInfo.getInfo(
+                    service,
+                    queryHandler
                 )
 
-                searchInfo.relatedItems
-                    .filterIsInstance<StreamInfoItem>()
+                val collected =
+                    mutableListOf<StreamInfoItem>()
+
+                collected.addAll(
+                    searchInfo.relatedItems
+                        .filterIsInstance<StreamInfoItem>()
+                )
+
+                var nextPage = searchInfo.nextPage
+                var pagesFetched = 0
+
+                /*
+                 * YouTube devuelve de a ~20 resultados por
+                 * página. Pedimos páginas extra hasta llegar
+                 * a maxResults (o hasta 4 páginas de más, para
+                 * no hacer esperar demasiado).
+                 */
+                while (
+                    collected.size < maxResults &&
+                    nextPage != null &&
+                    pagesFetched < 4
+                ) {
+
+                    val morePage =
+                        SearchInfo.getMoreItems(
+                            service,
+                            queryHandler,
+                            nextPage
+                        )
+
+                    val moreItems =
+                        morePage.items
+                            .filterIsInstance<StreamInfoItem>()
+
+                    if (moreItems.isEmpty()) {
+                        break
+                    }
+
+                    collected.addAll(moreItems)
+                    nextPage = morePage.nextPage
+                    pagesFetched += 1
+                }
+
+                collected
                     .take(maxResults)
                     .map { item ->
 
@@ -96,6 +141,44 @@ class YgYouTubeEngine(
                         ?: "No se pudo realizar la búsqueda de YouTube",
                     e
                 )
+            }
+        }
+    }
+
+    /**
+     * Sugerencias de autocompletado (las mismas que muestra
+     * YouTube mientras escribís, antes de buscar).
+     */
+    suspend fun suggestQueries(
+        query: String
+    ): List<String> {
+
+        return withContext(Dispatchers.IO) {
+
+            initialize()
+
+            val cleanQuery = query.trim()
+
+            if (cleanQuery.isEmpty()) {
+                return@withContext emptyList()
+            }
+
+            try {
+
+                val service = ServiceList.YouTube
+
+                service.suggestionExtractor
+                    ?.suggestionList(cleanQuery)
+                    ?: emptyList()
+
+            } catch (e: Exception) {
+
+                /*
+                 * Las sugerencias son un extra, no algo
+                 * crítico: si fallan, simplemente no se
+                 * muestran (no interrumpe la búsqueda normal).
+                 */
+                emptyList()
             }
         }
     }
