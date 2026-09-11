@@ -7,5 +7,6 @@ data class Receiver(
     val port: Int,
     val connected: Boolean = false,
     val latency: Long = 0L,
-    val playbackPosition: Long = 0L
+    val playbackPosition: Long = 0L,
+    val isPlaying: Boolean = false
 )
