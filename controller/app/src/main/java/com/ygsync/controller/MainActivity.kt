@@ -12,12 +12,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -77,7 +80,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -103,6 +108,8 @@ private val YgBackground = Color(0xFFF6F8FC)
 private val YgText = Color(0xFF172033)
 private val YgMuted = Color(0xFF718096)
 private val YgSaveRed = Color(0xFFE53935)
+private val YgGradientStart = Color(0xFF1565D8)
+private val YgGradientEnd = Color(0xFF22D3EE)
 
 private fun formatSeconds(totalSeconds: Int): String {
 
@@ -556,43 +563,150 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun VerticalSlider(
+private fun VerticalVolumeBar(
     value: Float,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
-    valueRange: ClosedFloatingPointRange<Float> = 0f..1f
-) {
-    Slider(
-        value = value,
-        onValueChange = onValueChange,
-        onValueChangeFinished = onValueChangeFinished,
-        valueRange = valueRange,
-        modifier = modifier
-            .graphicsLayer {
-                rotationZ = 270f
-                transformOrigin = TransformOrigin(0f, 0f)
-            }
-            .layout { measurable, constraints ->
-
-                val placeable =
-                    measurable.measure(
-                        Constraints(
-                            minWidth = constraints.minHeight,
-                            maxWidth = constraints.maxHeight,
-                            minHeight = constraints.minWidth,
-                            maxHeight = constraints.maxWidth
-                        )
-                    )
-
-                layout(placeable.height, placeable.width) {
-                    placeable.place(
-                        x = -(placeable.width / 2 - placeable.height / 2),
-                        y = -(placeable.height / 2 - placeable.width / 2)
-                    )
-                }
-            }
+    trackColor: Color = Color.White.copy(alpha = 0.28f),
+    fillBrush: Brush = Brush.verticalGradient(
+        listOf(YgGradientEnd, YgGradientStart)
     )
+) {
+    var barHeightPx by remember {
+        mutableStateOf(0f)
+    }
+
+    fun valueFromOffsetY(offsetY: Float): Float {
+
+        if (barHeightPx <= 0f) {
+            return value
+        }
+
+        return (1f - (offsetY / barHeightPx))
+            .coerceIn(0f, 1f)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(trackColor)
+            .onGloballyPositioned { coordinates ->
+                barHeightPx =
+                    coordinates.size.height.toFloat()
+            }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        onValueChange(
+                            valueFromOffsetY(offset.y)
+                        )
+                    },
+                    onVerticalDrag = { change, _ ->
+                        change.consume()
+                        onValueChange(
+                            valueFromOffsetY(change.position.y)
+                        )
+                    },
+                    onDragEnd = {
+                        onValueChangeFinished()
+                    },
+                    onDragCancel = {
+                        onValueChangeFinished()
+                    }
+                )
+            }
+    ) {
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(
+                    fraction = value.coerceIn(0f, 1f)
+                )
+                .clip(RoundedCornerShape(50))
+                .background(fillBrush)
+        )
+    }
+}
+
+@Composable
+private fun HorizontalProgressBar(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+    trackColor: Color = Color.White.copy(alpha = 0.3f),
+    fillBrush: Brush = Brush.horizontalGradient(
+        listOf(YgGradientStart, YgGradientEnd)
+    )
+) {
+    var barWidthPx by remember {
+        mutableStateOf(0f)
+    }
+
+    val span =
+        (valueRange.endInclusive - valueRange.start)
+            .coerceAtLeast(0.0001f)
+
+    val fraction =
+        ((value - valueRange.start) / span)
+            .coerceIn(0f, 1f)
+
+    fun valueFromOffsetX(offsetX: Float): Float {
+
+        if (barWidthPx <= 0f) {
+            return value
+        }
+
+        val frac =
+            (offsetX / barWidthPx).coerceIn(0f, 1f)
+
+        return valueRange.start + frac * span
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(trackColor)
+            .onGloballyPositioned { coordinates ->
+                barWidthPx =
+                    coordinates.size.width.toFloat()
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        onValueChange(
+                            valueFromOffsetX(offset.x)
+                        )
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        change.consume()
+                        onValueChange(
+                            valueFromOffsetX(change.position.x)
+                        )
+                    },
+                    onDragEnd = {
+                        onValueChangeFinished()
+                    },
+                    onDragCancel = {
+                        onValueChangeFinished()
+                    }
+                )
+            }
+    ) {
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .fillMaxWidth(fraction = fraction)
+                .clip(RoundedCornerShape(50))
+                .background(fillBrush)
+        )
+    }
 }
 
 @Composable
@@ -721,7 +835,7 @@ private fun FeaturedVideoPlayer(
                         .padding(bottom = 4.dp)
                 )
 
-                VerticalSlider(
+                VerticalVolumeBar(
                     value = volume,
                     onValueChange = onVolumeChange,
                     onValueChangeFinished = {
@@ -811,8 +925,9 @@ private fun FeaturedVideoPlayer(
                     modifier = Modifier.padding(end = 6.dp)
                 )
 
-                Slider(
+                HorizontalProgressBar(
                     value = shownPosition,
+                    valueRange = 0f..safeDuration.toFloat(),
                     onValueChange = {
                         draggingPosition = it
                     },
@@ -822,9 +937,9 @@ private fun FeaturedVideoPlayer(
                         }
                         draggingPosition = null
                     },
-                    valueRange = 0f..safeDuration.toFloat(),
                     modifier = Modifier
                         .weight(1f)
+                        .height(8.dp)
                         .padding(horizontal = 4.dp)
                 )
 
