@@ -12,7 +12,8 @@ data class YgYouTubeUiState(
     val results: List<YgYouTubeResult> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
-    val hasSearched: Boolean = false
+    val hasSearched: Boolean = false,
+    val suggestions: List<YgYouTubeResult> = emptyList()
 )
 
 class YgYouTubeViewModel(
@@ -24,6 +25,49 @@ class YgYouTubeViewModel(
 
     val uiState: StateFlow<YgYouTubeUiState> =
         _uiState.asStateFlow()
+
+    /*
+     * Consultas variadas para que, apenas se abre la app
+     * (sin buscar nada todavía), ya haya opciones de
+     * canciones distintas para tocar. Pensado para uso en
+     * bar: siempre hay algo para elegir sin escribir.
+     */
+    private val defaultSuggestionQueries = listOf(
+        "musica popular",
+        "reggaeton mix",
+        "salsa clasica",
+        "rock en español"
+    )
+
+    init {
+        loadSuggestions()
+    }
+
+    private fun loadSuggestions() {
+
+        viewModelScope.launch {
+
+            val query =
+                defaultSuggestionQueries.random()
+
+            repository
+                .search(query)
+                .onSuccess { results ->
+
+                    _uiState.value =
+                        _uiState.value.copy(
+                            suggestions = results
+                        )
+                }
+                .onFailure {
+                    /*
+                     * Si falla, simplemente no hay
+                     * sugerencias por defecto; no es un
+                     * error que deba mostrarse.
+                     */
+                }
+        }
+    }
 
     fun setQuery(value: String) {
         _uiState.value =
@@ -79,6 +123,8 @@ class YgYouTubeViewModel(
     fun clearSearch() {
 
         _uiState.value =
-            YgYouTubeUiState()
+            YgYouTubeUiState(
+                suggestions = _uiState.value.suggestions
+            )
     }
 }
