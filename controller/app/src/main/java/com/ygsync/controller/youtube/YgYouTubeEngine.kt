@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
 class YgYouTubeEngine(
@@ -141,6 +142,84 @@ class YgYouTubeEngine(
                         ?: "No se pudo realizar la búsqueda de YouTube",
                     e
                 )
+            }
+        }
+    }
+
+    /**
+     * Trae título, canal y miniatura de un videoId puntual.
+     * Se usa cuando una pantalla cambió de video sola (por
+     * autoplay/relacionados de SmartTube) y necesitamos
+     * mostrar en el reproductor qué es lo que está sonando
+     * en realidad, no lo último que se buscó.
+     */
+    suspend fun getVideoInfo(
+        videoId: String
+    ): YgYouTubeResult? {
+
+        return withContext(Dispatchers.IO) {
+
+            initialize()
+
+            val cleanId = videoId.trim()
+
+            if (cleanId.isEmpty()) {
+                return@withContext null
+            }
+
+            try {
+
+                val service = ServiceList.YouTube
+
+                val streamInfo = StreamInfo.getInfo(
+                    service,
+                    "https://www.youtube.com/watch?v=$cleanId"
+                )
+
+                YgYouTubeResult(
+                    videoId = cleanId,
+
+                    title = streamInfo.name ?: "",
+
+                    channelName =
+                        streamInfo.uploaderName ?: "",
+
+                    thumbnailUrl =
+                        streamInfo.thumbnails
+                            .firstOrNull()
+                            ?.url
+                            ?: "https://i.ytimg.com/vi/" +
+                                "$cleanId/hqdefault.jpg",
+
+                    duration =
+                        if (streamInfo.duration > 0) {
+                            formatDuration(streamInfo.duration)
+                        } else {
+                            ""
+                        },
+
+                    viewCount =
+                        if (streamInfo.viewCount >= 0) {
+                            streamInfo.viewCount.toString()
+                        } else {
+                            ""
+                        },
+
+                    publishedTime =
+                        streamInfo.textualUploadDate ?: "",
+
+                    description = ""
+                )
+
+            } catch (e: Exception) {
+
+                /*
+                 * Si no se puede traer la info (video
+                 * privado/borrado, error de red, etc.) no
+                 * cortamos nada: el reproductor simplemente
+                 * se queda con lo que ya tenía.
+                 */
+                null
             }
         }
     }
