@@ -13,7 +13,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,8 +45,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,7 +56,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -212,10 +208,6 @@ private fun YgSyncApp(context: Context) {
         mutableStateOf<List<String>>(emptyList())
     }
 
-    var volume by remember {
-        mutableFloatStateOf(1f)
-    }
-
     var isPlaying by remember {
         mutableStateOf(false)
     }
@@ -226,6 +218,10 @@ private fun YgSyncApp(context: Context) {
 
     var lastKnownPositionSec by remember {
         mutableFloatStateOf(-1f)
+    }
+
+    var lastSyncedVideoId by remember {
+        mutableStateOf<String?>(null)
     }
 
     val savedVideos = remember {
@@ -254,6 +250,19 @@ private fun YgSyncApp(context: Context) {
 
                 if (reference != null) {
 
+                    /*
+                     * Antes "isPlaying" era una bandera local
+                     * que solo cambiaba al tocar el botón de
+                     * play/pausa, y quedaba pegada en "sonando"
+                     * aunque el video ya hubiese terminado en
+                     * la pantalla real. La sincronizamos acá
+                     * con el estado real que reporta la
+                     * pantalla, así el ícono y el avance de la
+                     * barra siempre reflejan lo que pasa de
+                     * verdad.
+                     */
+                    isPlaying = reference.isPlaying
+
                     val realPositionSec =
                         reference.playbackPosition / 1000f
 
@@ -262,6 +271,32 @@ private fun YgSyncApp(context: Context) {
                         livePositionSec = realPositionSec
                     } else if (reference.isPlaying) {
                         livePositionSec += 1f
+                    }
+                }
+
+                /*
+                 * Si la pantalla cambió de video sola (autoplay
+                 * o "siguiente" desde el propio SmartTube), el
+                 * servicio lo detecta y expone el nuevo videoId
+                 * acá. Traemos su título/miniatura reales para
+                 * que el reproductor deje de mostrar el video
+                 * que buscaste originalmente.
+                 */
+                val liveVideoId =
+                    service.currentVideoId.value
+
+                if (
+                    !liveVideoId.isNullOrEmpty() &&
+                    liveVideoId != lastSyncedVideoId
+                ) {
+                    lastSyncedVideoId = liveVideoId
+                    lastKnownPositionSec = -1f
+
+                    val info =
+                        viewModel.getVideoInfo(liveVideoId)
+
+                    if (info != null) {
+                        selectedVideo = info
                     }
                 }
             }
@@ -289,13 +324,9 @@ private fun YgSyncApp(context: Context) {
                     0 -> HomeScreen(
                         uiState = uiState,
                         selectedVideo = selectedVideo,
-                        volume = volume,
                         isPlaying = isPlaying,
                         positionSec = livePositionSec,
                         savedVideos = savedVideos,
-                        onVolumeChange = {
-                            volume = it
-                        },
                         onPlayPause = {
                             val service =
                                 ControllerSyncService.getInstance()
@@ -455,11 +486,9 @@ private fun YgSyncApp(context: Context) {
 private fun HomeScreen(
     uiState: YgYouTubeUiState,
     selectedVideo: YgYouTubeResult?,
-    volume: Float,
     isPlaying: Boolean,
     positionSec: Float,
     savedVideos: List<YgYouTubeResult>,
-    onVolumeChange: (Float) -> Unit,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -513,7 +542,6 @@ private fun HomeScreen(
 
                 FeaturedVideoPlayer(
                     video = featuredVideo,
-                    volume = volume,
                     isPlaying = isPlaying,
                     isSaved = savedVideos.any {
                         it.videoId == featuredVideo.videoId
@@ -523,7 +551,6 @@ private fun HomeScreen(
                         parseDurationToSeconds(
                             featuredVideo.duration
                         ),
-                    onVolumeChange = onVolumeChange,
                     onPlayPause = onPlayPause,
                     onPrevious = onPrevious,
                     onNext = onNext,
@@ -559,75 +586,6 @@ private fun HomeScreen(
                 WelcomeView()
             }
         }
-    }
-}
-
-@Composable
-private fun VerticalVolumeBar(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    onValueChangeFinished: () -> Unit,
-    modifier: Modifier = Modifier,
-    trackColor: Color = Color.White.copy(alpha = 0.28f),
-    fillBrush: Brush = Brush.verticalGradient(
-        listOf(YgGradientEnd, YgGradientStart)
-    )
-) {
-    var barHeightPx by remember {
-        mutableStateOf(0f)
-    }
-
-    fun valueFromOffsetY(offsetY: Float): Float {
-
-        if (barHeightPx <= 0f) {
-            return value
-        }
-
-        return (1f - (offsetY / barHeightPx))
-            .coerceIn(0f, 1f)
-    }
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(trackColor)
-            .onGloballyPositioned { coordinates ->
-                barHeightPx =
-                    coordinates.size.height.toFloat()
-            }
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { offset ->
-                        onValueChange(
-                            valueFromOffsetY(offset.y)
-                        )
-                    },
-                    onVerticalDrag = { change, _ ->
-                        change.consume()
-                        onValueChange(
-                            valueFromOffsetY(change.position.y)
-                        )
-                    },
-                    onDragEnd = {
-                        onValueChangeFinished()
-                    },
-                    onDragCancel = {
-                        onValueChangeFinished()
-                    }
-                )
-            }
-    ) {
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(
-                    fraction = value.coerceIn(0f, 1f)
-                )
-                .clip(RoundedCornerShape(50))
-                .background(fillBrush)
-        )
     }
 }
 
@@ -712,12 +670,10 @@ private fun HorizontalProgressBar(
 @Composable
 private fun FeaturedVideoPlayer(
     video: YgYouTubeResult,
-    volume: Float,
     isPlaying: Boolean,
     isSaved: Boolean,
     positionSec: Float,
     durationSec: Int,
-    onVolumeChange: (Float) -> Unit,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -806,46 +762,6 @@ private fun FeaturedVideoPlayer(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            /*
-             * Volumen: vertical, del lado derecho.
-             */
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp)
-                    .width(46.dp)
-                    .height(190.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-
-                Icon(
-                    imageVector =
-                        if (volume <= 0.01f) {
-                            Icons.Default.VolumeDown
-                        } else {
-                            Icons.Default.VolumeUp
-                        },
-                    contentDescription = "Volumen",
-                    tint = Color.White,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .padding(bottom = 4.dp)
-                )
-
-                VerticalVolumeBar(
-                    value = volume,
-                    onValueChange = onVolumeChange,
-                    onValueChangeFinished = {
-                        ControllerSyncService
-                            .getInstance()
-                            ?.setVolumeAll(volume)
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .width(28.dp)
                 )
             }
 
