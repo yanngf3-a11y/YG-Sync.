@@ -174,6 +174,13 @@ class YgYouTubeViewModel(
         }
     }
 
+    suspend fun getVideoInfo(
+        videoId: String
+    ): YgYouTubeResult? {
+
+        return repository.getVideoInfo(videoId)
+    }
+
     fun clearSearch() {
 
         querySuggestJob?.cancel()
