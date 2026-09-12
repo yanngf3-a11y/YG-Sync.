@@ -106,6 +106,19 @@ private val YgMuted = Color(0xFF718096)
 private val YgSaveRed = Color(0xFFE53935)
 private val YgGradientStart = Color(0xFF1565D8)
 private val YgGradientEnd = Color(0xFF22D3EE)
+private val YgCardShape = RoundedCornerShape(18.dp)
+
+/*
+ * Degradado "de marca": azul → celeste → turquesa.
+ * Se usa en todos los elementos destacados de la app
+ * (logo, botones principales, pestaña activa) para que
+ * se vea igual en todas las pantallas, no solo en Inicio.
+ */
+private val YgMainGradient = Brush.linearGradient(
+    listOf(YgGradientStart, YgLightBlue, YgGradientEnd)
+)
+
+private val YgCardElevation = 3.dp
 
 private fun formatSeconds(totalSeconds: Int): String {
 
@@ -1001,14 +1014,7 @@ private fun Header(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            YgBlue,
-                            YgLightBlue
-                        )
-                    )
-                ),
+                .background(YgMainGradient),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -1052,10 +1058,16 @@ private fun SearchBar(
                 placeholder = {
                     Text("Buscar en YouTube...")
                 },
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = YgLightBlue,
+                    unfocusedBorderColor = Color(0xFFDCE4F0),
+                    cursorColor = YgBlue
+                ),
                 leadingIcon = {
                     Icon(
                         Icons.Default.Search,
-                        contentDescription = "Buscar"
+                        contentDescription = "Buscar",
+                        tint = YgMuted
                     )
                 },
                 trailingIcon = {
@@ -1080,14 +1092,7 @@ private fun SearchBar(
                 modifier = Modifier
                     .size(52.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                YgBlue,
-                                YgLightBlue
-                            )
-                        )
-                    )
+                    .background(YgMainGradient)
                     .clickable {
                         onSearch()
                     },
@@ -1331,14 +1336,7 @@ private fun WelcomeView() {
             modifier = Modifier
                 .size(72.dp)
                 .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            YgBlue,
-                            YgLightBlue
-                        )
-                    )
-                ),
+                .background(YgMainGradient),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -1771,49 +1769,51 @@ private fun TechnicalScreen(
                         Arrangement.spacedBy(10.dp)
                 ) {
 
-                    Button(
-                        onClick = {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(YgMainGradient)
+                            .clickable {
 
-                            onRefresh()
+                                onRefresh()
 
-                            lastRefresh =
-                                SimpleDateFormat(
-                                    "HH:mm:ss",
-                                    Locale.getDefault()
-                                ).format(Date())
+                                lastRefresh =
+                                    SimpleDateFormat(
+                                        "HH:mm:ss",
+                                        Locale.getDefault()
+                                    ).format(Date())
 
-                            addLog(
-                                "Búsqueda de pantallas solicitada"
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape =
-                            RoundedCornerShape(13.dp),
-                        contentPadding =
-                            PaddingValues(
-                                horizontal = 12.dp,
-                                vertical = 10.dp
-                            ),
-                        colors =
-                            ButtonDefaults
-                                .buttonColors(
-                                    containerColor = YgBlue
+                                addLog(
+                                    "Búsqueda de pantallas solicitada"
                                 )
+                            }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
                     ) {
 
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Row(
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
 
-                        Spacer(
-                            modifier = Modifier.width(6.dp)
-                        )
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
 
-                        Text(
-                            text = "Buscar"
-                        )
+                            Spacer(
+                                modifier = Modifier.width(6.dp)
+                            )
+
+                            Text(
+                                text = "Buscar",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
                     OutlinedButton(
@@ -1835,6 +1835,15 @@ private fun TechnicalScreen(
                         modifier = Modifier.weight(0.72f),
                         shape =
                             RoundedCornerShape(13.dp),
+                        border =
+                            androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                YgLightBlue
+                            ),
+                        colors =
+                            ButtonDefaults.outlinedButtonColors(
+                                contentColor = YgBlue
+                            ),
                         contentPadding =
                             PaddingValues(
                                 horizontal = 10.dp,
@@ -2458,76 +2467,43 @@ private fun BottomNavigationBar(
             .fillMaxWidth()
             .navigationBarsPadding(),
         color = Color.White,
-        shadowElevation = 8.dp
+        shape = RoundedCornerShape(
+            topStart = 22.dp,
+            topEnd = 22.dp
+        ),
+        shadowElevation = 10.dp
     ) {
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(70.dp),
+                .padding(vertical = 8.dp)
+                .height(64.dp),
             verticalAlignment =
                 Alignment.CenterVertically
         ) {
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Home,
-                label = "Inicio",
-                selected = selectedTab == 0,
-                onClick = {
-                    onTabSelected(0)
-                }
+            val items = listOf(
+                Triple(Icons.Default.Home, "Inicio", 0),
+                Triple(Icons.Default.Search, "Buscar", 1),
+                Triple(Icons.Default.LibraryMusic, "Biblioteca", 2),
+                Triple(Icons.Default.Tv, "Pantallas", 3),
+                Triple(Icons.Default.Build, "Técnico", 4),
+                Triple(Icons.Default.Settings, "Ajustes", 5)
             )
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Search,
-                label = "Buscar",
-                selected = selectedTab == 1,
-                onClick = {
-                    onTabSelected(1)
-                }
-            )
+            items.forEach { (icon, label, index) ->
 
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.LibraryMusic,
-                label = "Biblioteca",
-                selected = selectedTab == 2,
-                onClick = {
-                    onTabSelected(2)
-                }
-            )
-
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Tv,
-                label = "Pantallas",
-                selected = selectedTab == 3,
-                onClick = {
-                    onTabSelected(3)
-                }
-            )
-
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Build,
-                label = "Técnico",
-                selected = selectedTab == 4,
-                onClick = {
-                    onTabSelected(4)
-                }
-            )
-
-            BottomItem(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Settings,
-                label = "Ajustes",
-                selected = selectedTab == 5,
-                onClick = {
-                    onTabSelected(5)
-                }
-            )
+                BottomItem(
+                    modifier = Modifier.weight(1f),
+                    icon = icon,
+                    label = label,
+                    selected = selectedTab == index,
+                    onClick = {
+                        onTabSelected(index)
+                    }
+                )
+            }
         }
     }
 }
@@ -2552,22 +2528,46 @@ private fun BottomItem(
             }
             .padding(
                 horizontal = 2.dp,
-                vertical = 5.dp
+                vertical = 4.dp
             ),
         horizontalAlignment =
             Alignment.CenterHorizontally
     ) {
 
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint =
-                if (selected) {
-                    YgBlue
-                } else {
-                    YgMuted
-                },
-            modifier = Modifier.size(22.dp)
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    if (selected) {
+                        YgMainGradient
+                    } else {
+                        Brush.linearGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent
+                            )
+                        )
+                    }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint =
+                    if (selected) {
+                        Color.White
+                    } else {
+                        YgMuted
+                    },
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(3.dp)
         )
 
         Text(
