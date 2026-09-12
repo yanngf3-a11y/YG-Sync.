@@ -1,1 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
 
+    <!-- Fondo redondeado con el degradado azul -> celeste -> turquesa de la app -->
+    <path android:pathData="M20,0 H88 A20,20 0 0 1 108,20 V88 A20,20 0 0 1 88,108 H20 A20,20 0 0 1 0,88 V20 A20,20 0 0 1 20,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:startColor="#1565D8"
+                android:centerColor="#42A5F5"
+                android:endColor="#22D3EE" />
+        </aapt:attr>
+    </path>
+
+    <!-- Un solo triángulo de "play", blanco, centrado -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,32 L42,76 L80,54 Z" />
+
+</vector>
