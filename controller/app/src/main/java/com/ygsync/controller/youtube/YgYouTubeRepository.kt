@@ -30,6 +30,17 @@ class YgYouTubeRepository(
         }
     }
 
+    suspend fun getVideoInfo(
+        videoId: String
+    ): YgYouTubeResult? {
+
+        return try {
+            engine.getVideoInfo(videoId)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun suggestQueries(
         query: String
     ): List<String> {
