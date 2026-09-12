@@ -67,6 +67,18 @@ class ControllerSyncService : Service() {
     @Volatile
     private var lastKnownVideoId: String? = null
 
+    /*
+     * Expone el videoId "oficial" actual para que la UI
+     * (MainActivity) pueda refrescar el reproductor —
+     * título, miniatura, etc. — cuando una pantalla avanza
+     * sola por autoplay/relacionados y no por una orden
+     * explícita del usuario.
+     */
+    private val _currentVideoId =
+        MutableStateFlow<String?>(null)
+    val currentVideoId: StateFlow<String?> =
+        _currentVideoId.asStateFlow()
+
     private val _receiverList = MutableStateFlow<List<Receiver>>(emptyList())
     val receiverList: StateFlow<List<Receiver>> = _receiverList.asStateFlow()
 
@@ -262,6 +274,7 @@ class ControllerSyncService : Service() {
                         ) {
 
                             lastKnownVideoId = videoId
+                            _currentVideoId.value = videoId
 
                             updateDiagnostic(
                                 "YG SYNC — AUTOPLAY DETECTADO EN " +
@@ -685,6 +698,7 @@ class ControllerSyncService : Service() {
          * cuando lo detecte en la pantalla de referencia.
          */
         lastKnownVideoId = cleanVideoId
+        _currentVideoId.value = cleanVideoId
 
         val receivers =
             _receiverList.value.toList()
